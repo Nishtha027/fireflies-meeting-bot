@@ -13,6 +13,7 @@ proves the bot can reliably get into a live call.
 """
 
 import argparse
+import os
 import re
 import sys
 import time
@@ -21,6 +22,10 @@ from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError, sy
 
 # How long to wait for any single UI element before giving up on it.
 ELEMENT_TIMEOUT_MS = 8_000
+
+# Saved login session produced by save_session.py. Google Meet requires a
+# signed-in account to join at all, so this must exist before we can run.
+AUTH_STATE_PATH = "auth_state.json"
 
 
 def log(message: str) -> None:
@@ -133,14 +138,27 @@ def wait_for_admission_or_connection(page: Page) -> None:
 
 
 def run(meet_url: str) -> None:
+    if not os.path.exists(AUTH_STATE_PATH):
+        log(f"ERROR: No saved login session found at '{AUTH_STATE_PATH}'.")
+        log("Google Meet requires a signed-in account to join a call.")
+        log("Run 'python save_session.py' first to log in and save a session, then retry.")
+        sys.exit(1)
+
     with sync_playwright() as playwright:
         log("Launching visible Chromium browser...")
-        browser = playwright.chromium.launch(headless=False)
+        # Playwright's own bundled Chromium build fails to start on some
+        # Windows machines ("side-by-side configuration is incorrect"),
+        # even freshly reinstalled. Using the system-installed Chrome via
+        # the "chrome" channel avoids that and requires no other changes.
+        browser = playwright.chromium.launch(headless=False, channel="chrome")
 
+        log("Loaded saved session. Joining as signed-in guest...")
         # A fresh context grants no permissions by default, so Playwright
         # auto-denies any getUserMedia (camera/mic) request without ever
-        # showing a native "Allow microphone/camera access?" popup.
-        context = browser.new_context(permissions=[])
+        # showing a native "Allow microphone/camera access?" popup. Loading
+        # storage_state restores the signed-in cookies/local storage saved
+        # by save_session.py, so Meet sees this as an authenticated user.
+        context = browser.new_context(permissions=[], storage_state=AUTH_STATE_PATH)
         page = context.new_page()
 
         try:
