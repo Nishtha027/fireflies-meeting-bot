@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -42,21 +48,39 @@ export function Sidebar() {
     pathnameRef.current = pathname;
   }, [pathname]);
 
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (trimmed.length === 0) return;
-
-    const timeout = setTimeout(() => {
-      const url = `/search?q=${encodeURIComponent(trimmed)}`;
+  // Stable identity (only depends on router, which Next.js guarantees is
+  // stable across renders) so it can be listed as an effect dependency
+  // without causing the debounce effect to re-run on every render.
+  const goToSearch = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      const url = trimmed
+        ? `/search?q=${encodeURIComponent(trimmed)}`
+        : "/search";
       if (pathnameRef.current === "/search") {
         router.replace(url, { scroll: false });
       } else {
         router.push(url);
       }
-    }, SEARCH_DEBOUNCE_MS);
+    },
+    [router],
+  );
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) return;
+
+    const timeout = setTimeout(() => goToSearch(query), SEARCH_DEBOUNCE_MS);
 
     return () => clearTimeout(timeout);
-  }, [query, router]);
+  }, [query, goToSearch]);
+
+  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      goToSearch(query);
+    }
+  }
 
   return (
     <aside className="sticky top-0 flex h-screen w-60 flex-shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -71,11 +95,19 @@ export function Sidebar() {
 
       <div className="px-3 pb-3">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <button
+            type="button"
+            onClick={() => goToSearch(query)}
+            aria-label="Go to search"
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
+            <Search className="h-4 w-4" />
+          </button>
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="Search meetings..."
             aria-label="Search meetings"
             className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:outline-none"

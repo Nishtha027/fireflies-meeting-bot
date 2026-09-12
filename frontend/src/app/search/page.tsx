@@ -41,11 +41,11 @@ function NeutralPlaceholder() {
     <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center">
       <SearchIcon className="h-6 w-6 text-slate-400" />
       <p className="text-base font-semibold text-slate-700">
-        Search your meetings
+        Search by keyword, filter by date, or both
       </p>
       <p className="max-w-sm text-sm text-slate-500">
-        Find meetings by anything said in them, or just browse by date -
-        pick a range below without typing a keyword.
+        Type something above, pick a date range below, or combine both - no
+        keyword required.
       </p>
     </div>
   );
