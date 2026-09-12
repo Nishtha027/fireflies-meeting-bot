@@ -9,6 +9,11 @@ Re-running against the same meeting_id replaces the previous summary and
 action items (delete-then-insert / update-in-place) rather than creating
 duplicates - same idempotency goal as ingest_transcript.py.
 
+The summarize() function is also called directly by main.py's
+POST /meetings/{id}/summarize endpoint - it raises SummarizeError subclasses
+instead of printing+sys.exit() so callers (CLI or API) can each handle
+errors their own way (stderr+exit code vs. an HTTP response).
+
 Model/API details confirmed against Groq's current docs (console.groq.com),
 AND against their live /models endpoint with the real API key, since the
 two disagreed:
@@ -28,6 +33,7 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass, field
 
 import httpx
 from dotenv import load_dotenv
@@ -46,6 +52,48 @@ load_dotenv()
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "openai/gpt-oss-120b"
 GROQ_CONTEXT_WINDOW_TOKENS = 131_072
+
+
+class SummarizeError(Exception):
+    """Base class for errors summarize() raises - callers decide how to present them."""
+
+
+class MeetingNotFoundError(SummarizeError):
+    pass
+
+
+class NoTranscriptError(SummarizeError):
+    pass
+
+
+class TranscriptTooLongError(SummarizeError):
+    pass
+
+
+class GroqConfigError(SummarizeError):
+    """GROQ_API_KEY missing entirely - a config problem, not an API failure."""
+
+
+class GroqAuthError(SummarizeError):
+    """Groq rejected the API key (401)."""
+
+
+class GroqRateLimitError(SummarizeError):
+    """Groq rate-limited the request (429)."""
+
+
+class GroqAPIError(SummarizeError):
+    """Network error, unexpected status code, or still-bad response after retry."""
+
+
+@dataclass
+class SummarizeResult:
+    meeting_id: int
+    overview: str
+    key_points: list[str]
+    decisions: list[str]
+    action_items: list[dict] = field(default_factory=list)  # [{"description": ..., "assignee": ...}]
+
 
 RESPONSE_JSON_SCHEMA = {
     "type": "object",
@@ -113,8 +161,8 @@ def build_transcript_text(meeting_id: int, session) -> str:
 def call_groq(transcript_text: str, api_key: str, retry_hint: str | None = None):
     """Returns (raw_json_response, None) on success, or (None, error_str) on a
     retryable failure (schema/parse issue). Hard failures (auth, rate limit,
-    network) exit the process directly rather than returning - those aren't
-    the retry-once case, they're "stop now"."""
+    network, other non-200) raise instead of returning - those aren't the
+    retry-once case, they're "stop now"."""
     user_content = transcript_text
     if retry_hint:
         user_content = (
@@ -144,22 +192,18 @@ def call_groq(transcript_text: str, api_key: str, retry_hint: str | None = None)
             timeout=60.0,
         )
     except httpx.RequestError as exc:
-        print(f"ERROR: network error calling Groq's API: {exc}", file=sys.stderr)
-        sys.exit(1)
+        raise GroqAPIError(f"network error calling Groq's API: {exc}") from exc
 
     if response.status_code == 401:
-        print("ERROR: Groq API key is invalid (401 Unauthorized). Check GROQ_API_KEY in backend/.env.", file=sys.stderr)
-        sys.exit(1)
+        raise GroqAuthError("Groq API key is invalid (401 Unauthorized). Check GROQ_API_KEY in backend/.env.")
     if response.status_code == 429:
-        print("ERROR: Groq API rate limit hit (429). Try again later - not retrying automatically.", file=sys.stderr)
-        sys.exit(1)
+        raise GroqRateLimitError("Groq API rate limit hit (429). Try again later - not retrying automatically.")
     if response.status_code == 400:
         # Strict JSON Schema mode can 400 when the model's own output fails
         # schema validation - treat this as retryable, same as malformed JSON.
         return None, f"400 from Groq (likely a schema-validation failure): {response.text}"
     if response.status_code != 200:
-        print(f"ERROR: Groq API returned {response.status_code}: {response.text}", file=sys.stderr)
-        sys.exit(1)
+        raise GroqAPIError(f"Groq API returned {response.status_code}: {response.text}")
 
     return response.json(), None
 
@@ -211,9 +255,7 @@ def get_structured_summary(transcript_text: str, api_key: str) -> dict:
         parsed, error = _try_parse(raw, api_error)
 
         if parsed is None:
-            print(f"ERROR: Groq response still bad after retry: {error}", file=sys.stderr)
-            print(f"--- raw response (for debugging) ---\n{raw}", file=sys.stderr)
-            sys.exit(1)
+            raise GroqAPIError(f"Groq response still bad after retry: {error}")
 
     return parsed
 
@@ -246,37 +288,35 @@ def save_summary(session, meeting_id: int, parsed: dict) -> int:
     return len(parsed["action_items"])
 
 
-def summarize(meeting_id: int) -> None:
+def summarize(meeting_id: int) -> SummarizeResult:
+    """Fetch the stored transcript for meeting_id, summarize it via Groq, and
+    save the result. Raises SummarizeError subclasses on failure - never
+    calls sys.exit(), so it's safe to call from a web request."""
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        print("ERROR: GROQ_API_KEY is not set in backend/.env.", file=sys.stderr)
-        sys.exit(1)
+        raise GroqConfigError("GROQ_API_KEY is not set in backend/.env.")
 
     session = SessionLocal()
     try:
         meeting = session.get(Meeting, meeting_id)
         if meeting is None:
-            print(f"ERROR: no meeting with id={meeting_id} in the database.", file=sys.stderr)
-            sys.exit(1)
+            raise MeetingNotFoundError(f"no meeting with id={meeting_id} in the database.")
 
         print(f"Summarizing meeting id={meeting_id} ({meeting.platform}/{meeting.native_meeting_id}, status={meeting.status!r})...")
 
         transcript_text = build_transcript_text(meeting_id, session)
         if not transcript_text:
-            print(f"ERROR: meeting id={meeting_id} has no transcript_segments. Nothing to summarize.", file=sys.stderr)
-            sys.exit(1)
+            raise NoTranscriptError(f"meeting id={meeting_id} has no transcript_segments. Nothing to summarize.")
 
         estimated_tokens = _estimate_tokens(transcript_text)
         print(f"Transcript: {len(transcript_text)} chars, ~{estimated_tokens} tokens "
               f"(Groq's {GROQ_MODEL} context window is {GROQ_CONTEXT_WINDOW_TOKENS} tokens).")
         if estimated_tokens > SAFE_TRANSCRIPT_TOKEN_BUDGET:
-            print(
-                f"ERROR: transcript (~{estimated_tokens} tokens) is close to or over the "
+            raise TranscriptTooLongError(
+                f"transcript (~{estimated_tokens} tokens) is close to or over the "
                 f"context window. Refusing to silently truncate - this needs a chunking "
-                f"strategy before proceeding. Not summarizing.",
-                file=sys.stderr,
+                f"strategy before proceeding. Not summarizing."
             )
-            sys.exit(1)
 
         parsed = get_structured_summary(transcript_text, api_key)
         print("Groq API call succeeded and returned a valid structured response.")
@@ -288,17 +328,30 @@ def summarize(meeting_id: int) -> None:
     finally:
         session.close()
 
-    print(f"\nOverview: {parsed['overview']}")
-    print(f"Key points: {len(parsed['key_points'])}, Decisions: {len(parsed['decisions'])}, "
-          f"Action items: {action_item_count}")
-    print(f"Saved to database for meeting_id={meeting_id}.")
+    return SummarizeResult(
+        meeting_id=meeting_id,
+        overview=parsed["overview"],
+        key_points=parsed["key_points"],
+        decisions=parsed["decisions"],
+        action_items=parsed["action_items"],
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--meeting-id", required=True, type=int, help="Our own meetings.id (not Vexa's)")
     args = parser.parse_args()
-    summarize(args.meeting_id)
+
+    try:
+        result = summarize(args.meeting_id)
+    except SummarizeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"\nOverview: {result.overview}")
+    print(f"Key points: {len(result.key_points)}, Decisions: {len(result.decisions)}, "
+          f"Action items: {len(result.action_items)}")
+    print(f"Saved to database for meeting_id={result.meeting_id}.")
 
 
 if __name__ == "__main__":

@@ -8,12 +8,18 @@ Usage:
 Re-running against the same meeting updates it in place (upsert on
 platform+native_meeting_id for the meeting, meeting_id+segment_id for each
 segment) rather than creating duplicates.
+
+The ingest() function is also called directly by main.py's
+POST /meetings/{id}/ingest endpoint - it raises IngestError subclasses
+instead of printing+sys.exit() so callers (CLI or API) can each handle
+errors their own way (stderr+exit code vs. an HTTP response).
 """
 
 import argparse
 import os
 import sys
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 from dotenv import load_dotenv
@@ -24,6 +30,29 @@ from app.models import Meeting, TranscriptSegment
 load_dotenv()
 
 
+class IngestError(Exception):
+    """Base class for errors ingest() raises - callers decide how to present them."""
+
+
+class VexaNotFoundError(IngestError):
+    """Vexa has no record of this platform/native_meeting_id (404)."""
+
+
+class VexaAPIError(IngestError):
+    """Vexa's API was unreachable or returned an unexpected error."""
+
+
+@dataclass
+class IngestResult:
+    meeting_id: int
+    status: str
+    platform: str
+    native_meeting_id: str
+    vexa_meeting_id: int | None
+    segments_saved: int
+    warning: str | None = None
+
+
 def fetch_transcript(platform: str, native_meeting_id: str) -> dict:
     api_base = os.environ["VEXA_API_BASE"]
     api_key = os.environ["VEXA_API_KEY"]
@@ -32,23 +61,18 @@ def fetch_transcript(platform: str, native_meeting_id: str) -> dict:
     try:
         response = httpx.get(url, headers={"X-API-Key": api_key}, timeout=15.0)
     except httpx.RequestError as exc:
-        print(f"ERROR: could not reach Vexa's API at {url}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        raise VexaAPIError(f"could not reach Vexa's API at {url}: {exc}") from exc
 
     if response.status_code == 404:
-        print(
-            f"ERROR: Vexa has no meeting {platform}/{native_meeting_id} "
-            f"(404 - never joined, or a typo in the id).",
-            file=sys.stderr,
+        raise VexaNotFoundError(
+            f"Vexa has no meeting {platform}/{native_meeting_id} "
+            f"(404 - never joined, or a typo in the id)."
         )
-        sys.exit(1)
     if response.status_code != 200:
-        print(
-            f"ERROR: Vexa's API returned {response.status_code} for "
-            f"{platform}/{native_meeting_id}: {response.text}",
-            file=sys.stderr,
+        raise VexaAPIError(
+            f"Vexa's API returned {response.status_code} for "
+            f"{platform}/{native_meeting_id}: {response.text}"
         )
-        sys.exit(1)
 
     return response.json()
 
@@ -59,16 +83,16 @@ def _parse_ts(value: str | None):
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def ingest(platform: str, native_meeting_id: str) -> None:
+def ingest(platform: str, native_meeting_id: str) -> IngestResult:
+    """Fetch + upsert a meeting's transcript. Raises IngestError subclasses on
+    failure - never calls sys.exit(), so it's safe to call from a web request."""
     print(f"Fetching transcript for {platform}/{native_meeting_id} from Vexa...")
     data = fetch_transcript(platform, native_meeting_id)
 
     segments = data.get("segments", [])
+    warning = None
     if not segments:
-        print(
-            f"WARNING: Vexa returned 0 segments for this meeting "
-            f"(status={data.get('status')!r}). Nothing to save."
-        )
+        warning = f"Vexa returned 0 segments for this meeting (status={data.get('status')!r})."
 
     session = SessionLocal()
     try:
@@ -109,12 +133,16 @@ def ingest(platform: str, native_meeting_id: str) -> None:
             saved_count += 1
 
         session.commit()
-        # Capture what we need to print while the session is still live -
+        # Capture what we need to return while the session is still live -
         # accessing ORM attributes after close() raises DetachedInstanceError.
-        meeting_id, meeting_status, vexa_meeting_id = (
-            meeting.id,
-            meeting.status,
-            meeting.vexa_meeting_id,
+        result = IngestResult(
+            meeting_id=meeting.id,
+            status=meeting.status,
+            platform=platform,
+            native_meeting_id=native_meeting_id,
+            vexa_meeting_id=meeting.vexa_meeting_id,
+            segments_saved=saved_count,
+            warning=warning,
         )
     except Exception:
         session.rollback()
@@ -122,9 +150,7 @@ def ingest(platform: str, native_meeting_id: str) -> None:
     finally:
         session.close()
 
-    print(f"Meeting saved: id={meeting_id} status={meeting_status!r} "
-          f"({platform}/{native_meeting_id}, Vexa meeting_id={vexa_meeting_id})")
-    print(f"Segments saved: {saved_count}")
+    return result
 
 
 def main() -> None:
@@ -133,7 +159,17 @@ def main() -> None:
     parser.add_argument("--platform", default="google_meet", help="Meeting platform (default: google_meet)")
     args = parser.parse_args()
 
-    ingest(args.platform, args.native_meeting_id)
+    try:
+        result = ingest(args.platform, args.native_meeting_id)
+    except IngestError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if result.warning:
+        print(f"WARNING: {result.warning}")
+    print(f"Meeting saved: id={result.meeting_id} status={result.status!r} "
+          f"({result.platform}/{result.native_meeting_id}, Vexa meeting_id={result.vexa_meeting_id})")
+    print(f"Segments saved: {result.segments_saved}")
 
 
 if __name__ == "__main__":
