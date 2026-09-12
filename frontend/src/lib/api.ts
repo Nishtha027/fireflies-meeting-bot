@@ -1,6 +1,8 @@
 import type {
   ActionItemWithMeeting,
   AnalyticsOverview,
+  CaptureMeetingResponse,
+  CaptureStatusResponse,
   ChatResponse,
   EmbedAllResponse,
   HealthResponse,
@@ -124,4 +126,18 @@ export function askChat(question: string): Promise<ChatResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question }),
   });
+}
+
+export function captureMeeting(
+  meetingUrl: string,
+): Promise<CaptureMeetingResponse> {
+  return request<CaptureMeetingResponse>("/meetings/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ meeting_url: meetingUrl }),
+  });
+}
+
+export function getCaptureStatus(id: number): Promise<CaptureStatusResponse> {
+  return request<CaptureStatusResponse>(`/meetings/${id}/capture-status`);
 }

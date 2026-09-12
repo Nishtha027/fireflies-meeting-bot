@@ -1,25 +1,9 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import {
-  BarChart3,
-  Home,
-  ListChecks,
-  MessageCircle,
-  Search,
-  Video,
-} from "lucide-react";
+import { usePathname } from "next/navigation";
+import { BarChart3, Home, ListChecks, MessageCircle, Video } from "lucide-react";
 import type { ComponentType } from "react";
-
-const SEARCH_DEBOUNCE_MS = 350;
 
 interface NavItem {
   href: string;
@@ -37,50 +21,6 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const [query, setQuery] = useState("");
-
-  // Read via a ref (not a reactive dependency) so navigating away - e.g.
-  // clicking a search result - doesn't re-run this effect and reschedule
-  // another debounced push back to /search just because pathname changed.
-  const pathnameRef = useRef(pathname);
-  useEffect(() => {
-    pathnameRef.current = pathname;
-  }, [pathname]);
-
-  // Stable identity (only depends on router, which Next.js guarantees is
-  // stable across renders) so it can be listed as an effect dependency
-  // without causing the debounce effect to re-run on every render.
-  const goToSearch = useCallback(
-    (value: string) => {
-      const trimmed = value.trim();
-      const url = trimmed
-        ? `/search?q=${encodeURIComponent(trimmed)}`
-        : "/search";
-      if (pathnameRef.current === "/search") {
-        router.replace(url, { scroll: false });
-      } else {
-        router.push(url);
-      }
-    },
-    [router],
-  );
-
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (trimmed.length === 0) return;
-
-    const timeout = setTimeout(() => goToSearch(query), SEARCH_DEBOUNCE_MS);
-
-    return () => clearTimeout(timeout);
-  }, [query, goToSearch]);
-
-  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      goToSearch(query);
-    }
-  }
 
   return (
     <aside className="sticky top-0 flex h-screen w-60 flex-shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -92,28 +32,6 @@ export function Sidebar() {
           Meetscribe
         </span>
       </Link>
-
-      <div className="px-3 pb-3">
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => goToSearch(query)}
-            aria-label="Go to search"
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-          >
-            <Search className="h-4 w-4" />
-          </button>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search meetings..."
-            aria-label="Search meetings"
-            className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:outline-none"
-          />
-        </div>
-      </div>
 
       <nav className="flex flex-1 flex-col gap-1 px-3">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { CalendarClock } from "lucide-react";
 import {
   ApiError,
   getActionItems,
@@ -14,8 +15,12 @@ import { MeetingCard, MeetingCardSkeleton } from "@/components/MeetingCard";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { StatCard } from "@/components/StatCard";
+import { QuickStart } from "@/components/QuickStart";
+import { ComingSoonPanel } from "@/components/ComingSoonPanel";
 
 const RECENT_COUNT = 5;
+
+type HomeTab = "recent" | "upcoming";
 
 export default function HomePage() {
   const [meetings, setMeetings] = useState<MeetingListItem[] | null>(null);
@@ -24,6 +29,7 @@ export default function HomePage() {
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const [tab, setTab] = useState<HomeTab>("recent");
 
   useEffect(() => {
     let cancelled = false;
@@ -75,42 +81,80 @@ export default function HomePage() {
 
       {!error && (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <QuickStart />
+
+          <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <StatCard label="Meetings recorded" value={meetings?.length ?? null} />
             <StatCard label="Open action items" value={openActionItemCount} />
             <StatCard label="Meetings this week" value={meetingsThisWeek} />
           </div>
 
-          <div className="mt-10 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">
-              Recent meetings
-            </h2>
-            <Link
-              href="/meetings"
-              className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
-            >
-              View all meetings &rarr;
-            </Link>
-          </div>
-
-          <div className="mt-4">
-            {meetings === null && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <MeetingCardSkeleton key={i} />
-                ))}
+          <div className="mt-10">
+            <div className="flex items-center justify-between border-b border-slate-200">
+              <div className="flex gap-6">
+                <button
+                  type="button"
+                  onClick={() => setTab("recent")}
+                  className={`-mb-px border-b-2 pb-2.5 text-sm font-medium transition ${
+                    tab === "recent"
+                      ? "border-indigo-600 text-indigo-600"
+                      : "border-transparent text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Recent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("upcoming")}
+                  className={`-mb-px border-b-2 pb-2.5 text-sm font-medium transition ${
+                    tab === "upcoming"
+                      ? "border-indigo-600 text-indigo-600"
+                      : "border-transparent text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Upcoming
+                </button>
               </div>
-            )}
+              {tab === "recent" && (
+                <Link
+                  href="/meetings"
+                  className="mb-2.5 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                >
+                  View all meetings &rarr;
+                </Link>
+              )}
+            </div>
 
-            {meetings !== null && meetings.length === 0 && <EmptyState />}
+            <div className="mt-4">
+              {tab === "upcoming" && (
+                <ComingSoonPanel
+                  icon={CalendarClock}
+                  message="Connect your calendar to see upcoming meetings here."
+                />
+              )}
 
-            {meetings !== null && meetings.length > 0 && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {meetings.slice(0, RECENT_COUNT).map((meeting) => (
-                  <MeetingCard key={meeting.id} meeting={meeting} />
-                ))}
-              </div>
-            )}
+              {tab === "recent" && (
+                <>
+                  {meetings === null && (
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <MeetingCardSkeleton key={i} />
+                      ))}
+                    </div>
+                  )}
+
+                  {meetings !== null && meetings.length === 0 && <EmptyState />}
+
+                  {meetings !== null && meetings.length > 0 && (
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      {meetings.slice(0, RECENT_COUNT).map((meeting) => (
+                        <MeetingCard key={meeting.id} meeting={meeting} />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </>
       )}

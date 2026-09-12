@@ -6,6 +6,17 @@ const PLATFORM_LABELS: Record<string, string> = {
   teams: "Microsoft Teams",
 };
 
+/** Vexa's bot-lifecycle statuses are snake_case (e.g. "awaiting_admission");
+ * CSS `capitalize` doesn't insert word breaks at underscores, so this turns
+ * that into a readable label ("Awaiting admission") for StatusBadge. */
+export function formatStatusLabel(status: string): string {
+  const words = status.split("_").filter(Boolean);
+  if (words.length === 0) return status;
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 export function formatPlatform(platform: string): string {
   return (
     PLATFORM_LABELS[platform] ??

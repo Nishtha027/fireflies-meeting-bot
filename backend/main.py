@@ -30,6 +30,17 @@ from analytics import (
     get_analytics_overview,
     get_meeting_analytics,
 )
+from capture_meeting import (
+    CaptureAPIError,
+    CaptureConfigError,
+    CaptureConflictError,
+    CaptureError,
+    CaptureMeetingNotFoundError,
+    CaptureRateLimitError,
+    InvalidMeetingUrlError,
+    get_capture_status,
+    start_capture,
+)
 from chat import (
     ChatError,
     EmptyQuestionError,
@@ -49,6 +60,9 @@ from schemas import (
     ActionItemUpdate,
     ActionItemWithMeeting,
     AnalyticsOverviewOut,
+    CaptureMeetingRequest,
+    CaptureMeetingResponse,
+    CaptureStatusResponse,
     ChatRequest,
     ChatResponse,
     ChatSourceOut,
@@ -168,6 +182,59 @@ def list_action_items(db: Session = Depends(get_db)):
         )
         for item, meeting in rows
     ]
+
+
+@app.post("/meetings/start", response_model=CaptureMeetingResponse)
+def start_meeting_capture(payload: CaptureMeetingRequest):
+    meeting_url = payload.meeting_url.strip()
+    if "meet.google.com" not in meeting_url.lower():
+        raise HTTPException(
+            status_code=422,
+            detail="Please paste a Google Meet link (meet.google.com/...) - other platforms aren't supported yet.",
+        )
+
+    try:
+        result = start_capture(meeting_url)
+    except InvalidMeetingUrlError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except CaptureConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except CaptureRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    except CaptureConfigError as exc:
+        raise HTTPException(status_code=500, detail=f"Vexa is misconfigured: {exc}")
+    except CaptureAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except CaptureError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return CaptureMeetingResponse(
+        success=True,
+        meeting_id=result.meeting_id,
+        status=result.status,
+        platform=result.platform,
+        native_meeting_id=result.native_meeting_id,
+    )
+
+
+@app.get("/meetings/{meeting_id}/capture-status", response_model=CaptureStatusResponse)
+def get_meeting_capture_status(meeting_id: int = Path(..., gt=0)):
+    try:
+        result = get_capture_status(meeting_id)
+    except CaptureMeetingNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except CaptureAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except CaptureError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return CaptureStatusResponse(
+        meeting_id=result.meeting_id,
+        status=result.status,
+        segments_saved=result.segments_saved,
+        summarized=result.summarized,
+        summarize_error=result.summarize_error,
+    )
 
 
 @app.patch("/action-items/{action_item_id}", response_model=ActionItemWithMeeting)

@@ -137,3 +137,19 @@ export interface AnalyticsOverview {
   total_duration_seconds: number;
   top_speaker: TopSpeaker | null;
 }
+
+export interface CaptureMeetingResponse {
+  success: boolean;
+  meeting_id: number;
+  status: string;
+  platform: string;
+  native_meeting_id: string;
+}
+
+export interface CaptureStatusResponse {
+  meeting_id: number;
+  status: string;
+  segments_saved: number;
+  summarized: boolean;
+  summarize_error: string | null;
+}

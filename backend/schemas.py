@@ -174,3 +174,23 @@ class AnalyticsOverviewOut(BaseModel):
     total_meetings: int
     total_duration_seconds: float
     top_speaker: TopSpeakerOut | None
+
+
+class CaptureMeetingRequest(BaseModel):
+    meeting_url: str
+
+
+class CaptureMeetingResponse(BaseModel):
+    success: bool
+    meeting_id: int
+    status: str
+    platform: str
+    native_meeting_id: str
+
+
+class CaptureStatusResponse(BaseModel):
+    meeting_id: int
+    status: str
+    segments_saved: int
+    summarized: bool
+    summarize_error: str | None
