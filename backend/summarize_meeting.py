@@ -31,11 +31,9 @@ two disagreed:
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import dataclass, field
 
-import httpx
 from dotenv import load_dotenv
 
 # Windows' console defaults stdout/stderr to cp1252, which can't encode
@@ -46,12 +44,19 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 from app.database import SessionLocal
 from app.models import ActionItem, Meeting, Summary, TranscriptSegment
+from groq_client import (
+    GROQ_CONTEXT_WINDOW_TOKENS,
+    GROQ_MODEL,
+    GroqAPIError,
+    GroqAuthError,
+    GroqConfigError,
+    GroqError,
+    GroqRateLimitError,
+    post_chat_completion,
+    require_api_key,
+)
 
 load_dotenv()
-
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "openai/gpt-oss-120b"
-GROQ_CONTEXT_WINDOW_TOKENS = 131_072
 
 
 class SummarizeError(Exception):
@@ -68,22 +73,6 @@ class NoTranscriptError(SummarizeError):
 
 class TranscriptTooLongError(SummarizeError):
     pass
-
-
-class GroqConfigError(SummarizeError):
-    """GROQ_API_KEY missing entirely - a config problem, not an API failure."""
-
-
-class GroqAuthError(SummarizeError):
-    """Groq rejected the API key (401)."""
-
-
-class GroqRateLimitError(SummarizeError):
-    """Groq rate-limited the request (429)."""
-
-
-class GroqAPIError(SummarizeError):
-    """Network error, unexpected status code, or still-bad response after retry."""
 
 
 @dataclass
@@ -184,20 +173,11 @@ def call_groq(transcript_text: str, api_key: str, retry_hint: str | None = None)
         "temperature": 0.2,
     }
 
-    try:
-        response = httpx.post(
-            GROQ_API_URL,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=body,
-            timeout=60.0,
-        )
-    except httpx.RequestError as exc:
-        raise GroqAPIError(f"network error calling Groq's API: {exc}") from exc
+    # post_chat_completion raises GroqAuthError/GroqRateLimitError/GroqAPIError
+    # for 401/429/network failures - only 400 (schema-validation failure,
+    # retryable here) and non-200/400 need handling below.
+    response = post_chat_completion(body, api_key)
 
-    if response.status_code == 401:
-        raise GroqAuthError("Groq API key is invalid (401 Unauthorized). Check GROQ_API_KEY in backend/.env.")
-    if response.status_code == 429:
-        raise GroqRateLimitError("Groq API rate limit hit (429). Try again later - not retrying automatically.")
     if response.status_code == 400:
         # Strict JSON Schema mode can 400 when the model's own output fails
         # schema validation - treat this as retryable, same as malformed JSON.
@@ -292,9 +272,7 @@ def summarize(meeting_id: int) -> SummarizeResult:
     """Fetch the stored transcript for meeting_id, summarize it via Groq, and
     save the result. Raises SummarizeError subclasses on failure - never
     calls sys.exit(), so it's safe to call from a web request."""
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise GroqConfigError("GROQ_API_KEY is not set in backend/.env.")
+    api_key = require_api_key()
 
     session = SessionLocal()
     try:
@@ -344,7 +322,7 @@ def main() -> None:
 
     try:
         result = summarize(args.meeting_id)
-    except SummarizeError as exc:
+    except (SummarizeError, GroqError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
 

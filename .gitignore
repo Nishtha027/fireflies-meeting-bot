@@ -5,3 +5,5 @@ __pycache__/
 .env
 recordings/
 archive/phase1-manual-approach/auth_state.json
+backend/chroma_data/
+backend/hf_cache/

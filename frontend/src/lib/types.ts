@@ -87,3 +87,29 @@ export interface ActionItemWithMeeting {
   native_meeting_id: string;
   meeting_start_time: string | null;
 }
+
+export interface ChatSource {
+  meeting_id: number;
+  native_meeting_id: string;
+  platform: string;
+  start_time: string | null;
+  chunk_type: string;
+  snippet: string;
+}
+
+export interface ChatResponse {
+  answer: string;
+  sources: ChatSource[];
+}
+
+export interface EmbedAllEntry {
+  meeting_id: number;
+  chunks_written: number;
+}
+
+export interface EmbedAllResponse {
+  success: boolean;
+  embedded: EmbedAllEntry[];
+  already_embedded: number[];
+  skipped_no_content: number[];
+}

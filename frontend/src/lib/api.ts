@@ -1,5 +1,7 @@
 import type {
   ActionItemWithMeeting,
+  ChatResponse,
+  EmbedAllResponse,
   HealthResponse,
   IngestResponse,
   MeetingDetail,
@@ -89,4 +91,16 @@ export function searchMeetings(params: SearchParams): Promise<SearchResult[]> {
   if (params.fromDate) usp.set("from_date", params.fromDate);
   if (params.toDate) usp.set("to_date", params.toDate);
   return request<SearchResult[]>(`/search?${usp.toString()}`);
+}
+
+export function embedAll(): Promise<EmbedAllResponse> {
+  return request<EmbedAllResponse>("/embed-all", { method: "POST" });
+}
+
+export function askChat(question: string): Promise<ChatResponse> {
+  return request<ChatResponse>("/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
 }

@@ -104,3 +104,39 @@ class ActionItemWithMeeting(BaseModel):
     platform: str
     native_meeting_id: str
     meeting_start_time: datetime | None
+
+
+class EmbedResponse(BaseModel):
+    success: bool
+    meeting_id: int
+    chunks_written: int
+
+
+class EmbedAllEntry(BaseModel):
+    meeting_id: int
+    chunks_written: int
+
+
+class EmbedAllResponse(BaseModel):
+    success: bool
+    embedded: list[EmbedAllEntry]
+    already_embedded: list[int]
+    skipped_no_content: list[int]
+
+
+class ChatRequest(BaseModel):
+    question: str
+
+
+class ChatSourceOut(BaseModel):
+    meeting_id: int
+    native_meeting_id: str
+    platform: str
+    start_time: datetime | None
+    chunk_type: str
+    snippet: str
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    sources: list[ChatSourceOut]

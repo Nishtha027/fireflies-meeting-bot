@@ -25,10 +25,29 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import ActionItem, Meeting, Summary, TranscriptSegment
+from chat import (
+    ChatError,
+    EmptyQuestionError,
+    NoIndexedMeetingsError,
+    answer_question,
+)
+from embeddings import (
+    EmbeddingError,
+    NoContentError,
+    embed_all,
+    embed_meeting,
+)
+from embeddings import MeetingNotFoundError as EmbedMeetingNotFoundError
 from ingest_transcript import IngestError, VexaAPIError, VexaNotFoundError, ingest
 from schemas import (
     ActionItemOut,
     ActionItemWithMeeting,
+    ChatRequest,
+    ChatResponse,
+    ChatSourceOut,
+    EmbedAllEntry,
+    EmbedAllResponse,
+    EmbedResponse,
     HealthResponse,
     IngestResponse,
     MeetingDetail,
@@ -391,5 +410,66 @@ def trigger_summarize(meeting_id: int = Path(..., gt=0)):
         action_items=[
             ActionItemOut(description=item["description"], assignee_guess=item["assignee"])
             for item in result.action_items
+        ],
+    )
+
+
+@app.post("/meetings/{meeting_id}/embed", response_model=EmbedResponse)
+def trigger_embed(meeting_id: int = Path(..., gt=0)):
+    try:
+        count = embed_meeting(meeting_id)
+    except EmbedMeetingNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except NoContentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except EmbeddingError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return EmbedResponse(success=True, meeting_id=meeting_id, chunks_written=count)
+
+
+@app.post("/embed-all", response_model=EmbedAllResponse)
+def trigger_embed_all():
+    summary = embed_all()
+    return EmbedAllResponse(
+        success=True,
+        embedded=[
+            EmbedAllEntry(meeting_id=meeting_id, chunks_written=count)
+            for meeting_id, count in summary.embedded
+        ],
+        already_embedded=summary.already_embedded,
+        skipped_no_content=summary.skipped_no_content,
+    )
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat_endpoint(request: ChatRequest):
+    try:
+        result = answer_question(request.question)
+    except EmptyQuestionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except NoIndexedMeetingsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except GroqConfigError as exc:
+        raise HTTPException(status_code=500, detail=f"Groq is misconfigured: {exc}")
+    except GroqAuthError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except GroqRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    except (GroqAPIError, ChatError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    return ChatResponse(
+        answer=result.answer,
+        sources=[
+            ChatSourceOut(
+                meeting_id=source.meeting_id,
+                native_meeting_id=source.native_meeting_id,
+                platform=source.platform,
+                start_time=source.start_time,
+                chunk_type=source.chunk_type,
+                snippet=source.snippet,
+            )
+            for source in result.sources
         ],
     )
