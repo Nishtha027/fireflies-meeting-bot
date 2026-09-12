@@ -25,6 +25,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import ActionItem, Meeting, Summary, TranscriptSegment
+from analytics import (
+    MeetingNotFoundError as AnalyticsMeetingNotFoundError,
+    get_analytics_overview,
+    get_meeting_analytics,
+)
 from chat import (
     ChatError,
     EmptyQuestionError,
@@ -41,7 +46,9 @@ from embeddings import MeetingNotFoundError as EmbedMeetingNotFoundError
 from ingest_transcript import IngestError, VexaAPIError, VexaNotFoundError, ingest
 from schemas import (
     ActionItemOut,
+    ActionItemUpdate,
     ActionItemWithMeeting,
+    AnalyticsOverviewOut,
     ChatRequest,
     ChatResponse,
     ChatSourceOut,
@@ -50,11 +57,14 @@ from schemas import (
     EmbedResponse,
     HealthResponse,
     IngestResponse,
+    MeetingAnalyticsOut,
     MeetingDetail,
     MeetingListItem,
     SearchResult,
+    SpeakerTalkTimeOut,
     SummarizeResponse,
     SummaryOut,
+    TopSpeakerOut,
     TranscriptSegmentOut,
 )
 from summarize_meeting import (
@@ -150,6 +160,7 @@ def list_action_items(db: Session = Depends(get_db)):
             description=item.description,
             assignee_guess=item.assignee_guess,
             generated_at=item.generated_at,
+            completed=item.completed,
             meeting_id=meeting.id,
             platform=meeting.platform,
             native_meeting_id=meeting.native_meeting_id,
@@ -157,6 +168,34 @@ def list_action_items(db: Session = Depends(get_db)):
         )
         for item, meeting in rows
     ]
+
+
+@app.patch("/action-items/{action_item_id}", response_model=ActionItemWithMeeting)
+def update_action_item(
+    payload: ActionItemUpdate,
+    action_item_id: int = Path(..., gt=0),
+    db: Session = Depends(get_db),
+):
+    item = db.get(ActionItem, action_item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"No action item with id={action_item_id}.")
+
+    item.completed = payload.completed
+    db.commit()
+    db.refresh(item)
+
+    meeting = db.get(Meeting, item.meeting_id)
+    return ActionItemWithMeeting(
+        id=item.id,
+        description=item.description,
+        assignee_guess=item.assignee_guess,
+        generated_at=item.generated_at,
+        completed=item.completed,
+        meeting_id=meeting.id,
+        platform=meeting.platform,
+        native_meeting_id=meeting.native_meeting_id,
+        meeting_start_time=meeting.start_time,
+    )
 
 
 # Full-text search across, for each meeting: its summary overview, key
@@ -472,4 +511,39 @@ def chat_endpoint(request: ChatRequest):
             )
             for source in result.sources
         ],
+    )
+
+
+@app.get("/meetings/{meeting_id}/analytics", response_model=MeetingAnalyticsOut)
+def get_meeting_analytics_endpoint(meeting_id: int = Path(..., gt=0)):
+    try:
+        result = get_meeting_analytics(meeting_id)
+    except AnalyticsMeetingNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return MeetingAnalyticsOut(
+        meeting_id=result.meeting_id,
+        total_duration_seconds=result.total_duration_seconds,
+        speakers=[
+            SpeakerTalkTimeOut(
+                speaker_label=s.speaker_label,
+                talk_time_seconds=s.talk_time_seconds,
+                percentage=s.percentage,
+            )
+            for s in result.speakers
+        ],
+    )
+
+
+@app.get("/analytics/overview", response_model=AnalyticsOverviewOut)
+def get_analytics_overview_endpoint():
+    result = get_analytics_overview()
+    return AnalyticsOverviewOut(
+        total_meetings=result.total_meetings,
+        total_duration_seconds=result.total_duration_seconds,
+        top_speaker=(
+            TopSpeakerOut(name=result.top_speaker.name, total_minutes=result.top_speaker.total_minutes)
+            if result.top_speaker
+            else None
+        ),
     )

@@ -31,8 +31,9 @@ export default function HomePage() {
       .then(([meetingsData, actionItemsData]) => {
         if (cancelled) return;
         setMeetings(sortMeetingsNewestFirst(meetingsData));
-        // Action items have no "done" flag yet, so every one is still open.
-        setOpenActionItemCount(actionItemsData.length);
+        setOpenActionItemCount(
+          actionItemsData.filter((item) => !item.completed).length,
+        );
       })
       .catch((err) => {
         if (cancelled) return;

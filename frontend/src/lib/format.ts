@@ -31,6 +31,14 @@ export function formatDateTime(iso: string | null): string {
   }).format(date);
 }
 
+function formatMinutesLabel(totalMinutes: number): string {
+  if (totalMinutes < 1) return "< 1 min";
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes} min`;
+  return `${hours}h ${minutes}m`;
+}
+
 export function formatDuration(
   start: string | null,
   end: string | null,
@@ -41,12 +49,14 @@ export function formatDuration(
   if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs < startMs) {
     return null;
   }
-  const totalMinutes = Math.round((endMs - startMs) / 60000);
-  if (totalMinutes < 1) return "< 1 min";
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes} min`;
-  return `${hours}h ${minutes}m`;
+  return formatMinutesLabel(Math.round((endMs - startMs) / 60000));
+}
+
+/** Same "Xh Ym" formatting as formatDuration(), but from a raw seconds
+ * total (e.g. analytics.total_duration_seconds) rather than two ISO dates. */
+export function formatDurationSeconds(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "0 min";
+  return formatMinutesLabel(Math.round(totalSeconds / 60));
 }
 
 export function sortMeetingsNewestFirst(

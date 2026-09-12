@@ -1,9 +1,11 @@
 import type {
   ActionItemWithMeeting,
+  AnalyticsOverview,
   ChatResponse,
   EmbedAllResponse,
   HealthResponse,
   IngestResponse,
+  MeetingAnalytics,
   MeetingDetail,
   MeetingListItem,
   SearchResult,
@@ -77,6 +79,25 @@ export function summarizeMeeting(id: number): Promise<SummarizeResponse> {
 
 export function getActionItems(): Promise<ActionItemWithMeeting[]> {
   return request<ActionItemWithMeeting[]>("/action-items");
+}
+
+export function updateActionItem(
+  id: number,
+  completed: boolean,
+): Promise<ActionItemWithMeeting> {
+  return request<ActionItemWithMeeting>(`/action-items/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ completed }),
+  });
+}
+
+export function getMeetingAnalytics(id: number): Promise<MeetingAnalytics> {
+  return request<MeetingAnalytics>(`/meetings/${id}/analytics`);
+}
+
+export function getAnalyticsOverview(): Promise<AnalyticsOverview> {
+  return request<AnalyticsOverview>("/analytics/overview");
 }
 
 export interface SearchParams {

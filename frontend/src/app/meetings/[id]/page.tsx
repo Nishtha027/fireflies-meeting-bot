@@ -3,12 +3,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ApiError, getMeeting, NetworkError, summarizeMeeting } from "@/lib/api";
-import type { MeetingDetail } from "@/lib/types";
+import {
+  ApiError,
+  getMeeting,
+  getMeetingAnalytics,
+  NetworkError,
+  summarizeMeeting,
+} from "@/lib/api";
+import type { MeetingAnalytics, MeetingDetail } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ErrorState } from "@/components/ErrorState";
 import { TranscriptView, TranscriptSkeleton } from "@/components/TranscriptView";
 import { SummaryPanelContent, SidebarSkeleton } from "@/components/SummarySidebar";
+import { TalkTimeBarChart } from "@/components/TalkTimeChart";
 import { formatDateTime, formatDuration, meetingTitle } from "@/lib/format";
 
 export default function MeetingDetailPage() {
@@ -16,6 +23,8 @@ export default function MeetingDetailPage() {
   const meetingId = Number(params.id);
 
   const [meeting, setMeeting] = useState<MeetingDetail | null>(null);
+  const [analytics, setAnalytics] = useState<MeetingAnalytics | null>(null);
+  const [analyticsFailedFor, setAnalyticsFailedFor] = useState<number | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
@@ -47,6 +56,31 @@ export default function MeetingDetailPage() {
       cancelled = true;
     };
   }, [meetingId, invalidId, reloadToken]);
+
+  // Independent of the meeting fetch above (and of the "no summary yet"
+  // state) - a compact talk-time widget that just quietly doesn't render if
+  // it fails, rather than blocking the whole page on a secondary feature.
+  // State only changes inside the promise callbacks (not synchronously in
+  // the effect body); `analytics`/`analyticsFailedFor` are matched against
+  // `meetingId` at render time so stale data from a previous id is never
+  // shown, without needing an eager reset.
+  useEffect(() => {
+    if (invalidId) return;
+    let cancelled = false;
+    getMeetingAnalytics(meetingId)
+      .then((data) => {
+        if (!cancelled) setAnalytics(data);
+      })
+      .catch(() => {
+        if (!cancelled) setAnalyticsFailedFor(meetingId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [meetingId, invalidId, reloadToken]);
+
+  const analyticsFailed = analyticsFailedFor === meetingId;
+  const currentAnalytics = analytics?.meeting_id === meetingId ? analytics : null;
 
   const retry = () => {
     setError(null);
@@ -158,6 +192,19 @@ export default function MeetingDetailPage() {
         </section>
 
         <aside className="rounded-xl border border-slate-200 bg-white p-6 lg:sticky lg:top-6">
+          {meeting &&
+            !analyticsFailed &&
+            (currentAnalytics === null || currentAnalytics.speakers.length > 0) && (
+              <div className="mb-6 border-b border-slate-100 pb-6">
+                <h3 className="mb-2 text-sm font-semibold text-slate-900">Talk time</h3>
+                {currentAnalytics === null ? (
+                  <div className="h-14 animate-pulse rounded bg-slate-100" />
+                ) : (
+                  <TalkTimeBarChart speakers={currentAnalytics.speakers} />
+                )}
+              </div>
+            )}
+
           {!meeting && <SidebarSkeleton />}
 
           {meeting && meeting.summary && (

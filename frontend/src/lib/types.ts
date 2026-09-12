@@ -82,6 +82,7 @@ export interface ActionItemWithMeeting {
   description: string;
   assignee_guess: string | null;
   generated_at: string;
+  completed: boolean;
   meeting_id: number;
   platform: string;
   native_meeting_id: string;
@@ -112,4 +113,27 @@ export interface EmbedAllResponse {
   embedded: EmbedAllEntry[];
   already_embedded: number[];
   skipped_no_content: number[];
+}
+
+export interface SpeakerTalkTime {
+  speaker_label: string;
+  talk_time_seconds: number;
+  percentage: number;
+}
+
+export interface MeetingAnalytics {
+  meeting_id: number;
+  total_duration_seconds: number;
+  speakers: SpeakerTalkTime[];
+}
+
+export interface TopSpeaker {
+  name: string;
+  total_minutes: number;
+}
+
+export interface AnalyticsOverview {
+  total_meetings: number;
+  total_duration_seconds: number;
+  top_speaker: TopSpeaker | null;
 }

@@ -100,10 +100,19 @@ class ActionItemWithMeeting(BaseModel):
     description: str
     assignee_guess: str | None
     generated_at: datetime
+    completed: bool
     meeting_id: int
     platform: str
     native_meeting_id: str
     meeting_start_time: datetime | None
+
+
+class ActionItemUpdate(BaseModel):
+    """Body for PATCH /action-items/{id} - completion is the only thing a
+    user can change about an action item themselves (everything else is
+    AI-generated from the transcript)."""
+
+    completed: bool
 
 
 class EmbedResponse(BaseModel):
@@ -140,3 +149,28 @@ class ChatSourceOut(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: list[ChatSourceOut]
+
+
+class SpeakerTalkTimeOut(BaseModel):
+    speaker_label: str
+    talk_time_seconds: float
+    # Share of this meeting's total TALKED time (every speaker's time
+    # summed), not of wall-clock meeting duration - see analytics.py.
+    percentage: float
+
+
+class MeetingAnalyticsOut(BaseModel):
+    meeting_id: int
+    total_duration_seconds: float
+    speakers: list[SpeakerTalkTimeOut]
+
+
+class TopSpeakerOut(BaseModel):
+    name: str
+    total_minutes: float
+
+
+class AnalyticsOverviewOut(BaseModel):
+    total_meetings: int
+    total_duration_seconds: float
+    top_speaker: TopSpeakerOut | None
