@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -75,6 +75,12 @@ class Summary(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     meeting_id: Mapped[int] = mapped_column(ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False)
     overview_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Arrays of strings, stored as JSON (nullable: only populated once the
+    # summarization pipeline runs). Added for the summarization phase after
+    # confirming with the user that plain columns (over one catch-all JSON
+    # blob) were preferred for later direct SQL querying.
+    key_points: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    decisions: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     meeting: Mapped["Meeting"] = relationship(back_populates="summaries")
