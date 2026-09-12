@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ApiError, getMeeting, NetworkError, summarizeMeeting } from "@/lib/api";
@@ -20,34 +20,40 @@ export default function MeetingDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
   const [summarizeError, setSummarizeError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
-  const load = useCallback(async () => {
+  const invalidId = Number.isNaN(meetingId);
+
+  useEffect(() => {
+    if (invalidId) return;
+    let cancelled = false;
+    getMeeting(meetingId)
+      .then((data) => {
+        if (!cancelled) setMeeting(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+        } else if (err instanceof NetworkError) {
+          setError(err.message);
+        } else if (err instanceof ApiError) {
+          setError(`The server returned an error: ${err.message}`);
+        } else {
+          setError("Something went wrong loading this meeting.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [meetingId, invalidId, reloadToken]);
+
+  const retry = () => {
     setError(null);
     setNotFound(false);
     setMeeting(null);
-    try {
-      const data = await getMeeting(meetingId);
-      setMeeting(data);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) {
-        setNotFound(true);
-      } else if (err instanceof NetworkError) {
-        setError(err.message);
-      } else if (err instanceof ApiError) {
-        setError(`The server returned an error: ${err.message}`);
-      } else {
-        setError("Something went wrong loading this meeting.");
-      }
-    }
-  }, [meetingId]);
-
-  useEffect(() => {
-    if (Number.isNaN(meetingId)) {
-      setNotFound(true);
-      return;
-    }
-    load();
-  }, [meetingId, load]);
+    setReloadToken((t) => t + 1);
+  };
 
   async function handleGenerateSummary() {
     setSummarizing(true);
@@ -67,7 +73,7 @@ export default function MeetingDetailPage() {
     }
   }
 
-  if (notFound) {
+  if (invalidId || notFound) {
     return (
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-16 text-center">
         <h1 className="text-xl font-semibold text-slate-900">
@@ -77,7 +83,7 @@ export default function MeetingDetailPage() {
           There&apos;s no meeting with id {params.id}.
         </p>
         <Link
-          href="/"
+          href="/meetings"
           className="mt-6 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
         >
           Back to meetings
@@ -89,7 +95,7 @@ export default function MeetingDetailPage() {
   if (error) {
     return (
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
-        <ErrorState message={error} onRetry={load} />
+        <ErrorState message={error} onRetry={retry} />
       </main>
     );
   }
@@ -101,7 +107,7 @@ export default function MeetingDetailPage() {
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
       <Link
-        href="/"
+        href="/meetings"
         className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
       >
         &larr; Back to meetings

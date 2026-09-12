@@ -1,3 +1,5 @@
+import type { MeetingListItem } from "./types";
+
 const PLATFORM_LABELS: Record<string, string> = {
   google_meet: "Google Meet",
   zoom: "Zoom",
@@ -45,6 +47,31 @@ export function formatDuration(
   const minutes = totalMinutes % 60;
   if (hours === 0) return `${minutes} min`;
   return `${hours}h ${minutes}m`;
+}
+
+export function sortMeetingsNewestFirst(
+  meetings: MeetingListItem[],
+): MeetingListItem[] {
+  return [...meetings].sort((a, b) => {
+    const aTime = a.start_time ? new Date(a.start_time).getTime() : -Infinity;
+    const bTime = b.start_time ? new Date(b.start_time).getTime() : -Infinity;
+    return bTime - aTime;
+  });
+}
+
+/** "This week" = the current ISO week, Monday 00:00 local time through now. */
+export function isThisWeek(iso: string | null): boolean {
+  if (!iso) return false;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return false;
+
+  const now = new Date();
+  const dayOfWeek = (now.getDay() + 6) % 7; // 0 = Monday
+  const startOfWeek = new Date(now);
+  startOfWeek.setHours(0, 0, 0, 0);
+  startOfWeek.setDate(now.getDate() - dayOfWeek);
+
+  return date >= startOfWeek && date <= now;
 }
 
 function formatMinutesSeconds(totalSeconds: number): string {

@@ -68,3 +68,18 @@ class SummarizeResponse(BaseModel):
     key_points: list[str]
     decisions: list[str]
     action_items: list[ActionItemOut]
+
+
+class ActionItemWithMeeting(BaseModel):
+    """An action item plus enough of its parent meeting's context to link
+    back to it, so the Tasks page can render a cross-meeting list without
+    the frontend making one request per meeting."""
+
+    id: int
+    description: str
+    assignee_guess: str | None
+    generated_at: datetime
+    meeting_id: int
+    platform: str
+    native_meeting_id: str
+    meeting_start_time: datetime | None

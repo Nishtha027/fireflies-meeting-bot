@@ -1,4 +1,5 @@
 import type {
+  ActionItemWithMeeting,
   HealthResponse,
   IngestResponse,
   MeetingDetail,
@@ -69,4 +70,8 @@ export function summarizeMeeting(id: number): Promise<SummarizeResponse> {
   return request<SummarizeResponse>(`/meetings/${id}/summarize`, {
     method: "POST",
   });
+}
+
+export function getActionItems(): Promise<ActionItemWithMeeting[]> {
+  return request<ActionItemWithMeeting[]>("/action-items");
 }

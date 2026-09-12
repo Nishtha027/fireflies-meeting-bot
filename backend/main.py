@@ -27,6 +27,7 @@ from app.models import ActionItem, Meeting, Summary, TranscriptSegment
 from ingest_transcript import IngestError, VexaAPIError, VexaNotFoundError, ingest
 from schemas import (
     ActionItemOut,
+    ActionItemWithMeeting,
     HealthResponse,
     IngestResponse,
     MeetingDetail,
@@ -110,6 +111,31 @@ def list_meetings(db: Session = Depends(get_db)):
             )
         )
     return items
+
+
+@app.get("/action-items", response_model=list[ActionItemWithMeeting])
+def list_action_items(db: Session = Depends(get_db)):
+    # One join, not N+1: the Tasks page needs every action item across every
+    # meeting plus enough meeting context to link back, in a single request.
+    rows = (
+        db.query(ActionItem, Meeting)
+        .join(Meeting, ActionItem.meeting_id == Meeting.id)
+        .order_by(ActionItem.generated_at.desc())
+        .all()
+    )
+    return [
+        ActionItemWithMeeting(
+            id=item.id,
+            description=item.description,
+            assignee_guess=item.assignee_guess,
+            generated_at=item.generated_at,
+            meeting_id=meeting.id,
+            platform=meeting.platform,
+            native_meeting_id=meeting.native_meeting_id,
+            meeting_start_time=meeting.start_time,
+        )
+        for item, meeting in rows
+    ]
 
 
 @app.get("/meetings/{meeting_id}", response_model=MeetingDetail)

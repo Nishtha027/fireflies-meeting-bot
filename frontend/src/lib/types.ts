@@ -64,3 +64,14 @@ export interface SummarizeResponse {
   decisions: string[];
   action_items: ActionItem[];
 }
+
+export interface ActionItemWithMeeting {
+  id: number;
+  description: string;
+  assignee_guess: string | null;
+  generated_at: string;
+  meeting_id: number;
+  platform: string;
+  native_meeting_id: string;
+  meeting_start_time: string | null;
+}
