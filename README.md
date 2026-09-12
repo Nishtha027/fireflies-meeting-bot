@@ -11,10 +11,10 @@ See [docs/PHASES.md](docs/PHASES.md) for the phase-by-phase plan and status.
 
 Meeting join and audio capture are handled by a self-hosted instance of
 [Vexa](https://github.com/Vexa-ai/vexa) (Apache 2.0), an open-source
-meeting bot + API/dashboard. Vexa runs as its own service, cloned as a
-sibling folder alongside this repo (see
+meeting bot + API/dashboard. Vexa lives at [`vexa/`](vexa) as a **git
+submodule**, pinned to a specific tested commit (see
 [docs/VEXA_SETUP.md](docs/VEXA_SETUP.md) for how this project's instance is
-configured and run).
+configured and run, and how to pull the submodule in when cloning).
 
 Live transcription runs as a **separately self-hosted** `faster-whisper`
 service (Vexa's own `deploy/transcription` unit) on local GPU hardware, not

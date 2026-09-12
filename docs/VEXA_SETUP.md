@@ -6,9 +6,28 @@ This project uses a self-hosted instance of [Vexa](https://github.com/Vexa-ai/ve
 local GPU hardware. Neither piece uses vexa.ai's hosted/paid API or account
 system — everything below runs on this machine, for free.
 
-Vexa is cloned as a **sibling folder** to this repo (`../vexa`, i.e.
-`D:\OpenCode\vexa` alongside `D:\OpenCode\fireflies-clone`), not inside it —
-it's a separate upstream project we don't modify, only configure.
+Vexa lives at [`vexa/`](../vexa) as a **git submodule** — a formally
+recorded dependency pinned to an exact upstream commit, not a loose sibling
+clone. We don't modify its source, only configure it (`.env` files, which
+are gitignored and never come from a submodule clone — see "Cloning this
+repo" below).
+
+## Cloning this repo (with Vexa included)
+
+```bash
+git clone --recurse-submodules <this-repo-url>
+```
+
+Already cloned without that flag? Pull the submodule in after the fact:
+
+```bash
+git submodule update --init --recursive
+```
+
+Either way, this only brings Vexa's **tracked source code** at the pinned
+commit — `vexa/deploy/compose/.env` and `vexa/deploy/transcription/.env`
+are *not* included (submodules never carry gitignored/untracked files).
+Recreate them by following the steps below.
 
 ## Two deploy units
 
@@ -72,6 +91,21 @@ docker pull vexaai/vexa-bot:v012                        # the meeting bot image
 docker compose -p vexa-v012 -f docker-compose.yml up -d --no-build
 ```
 
+**Known gotcha (as of this pinned commit): `minio/mc:latest` no longer
+exists on Docker Hub** (MinIO retired that repo upstream — confirmed via
+Docker Hub's own API returning "object not found", unrelated to anything in
+this project). The `minio-init` one-off container needs it. If `up` fails
+on that image, work around it without touching the submodule's tracked
+files:
+
+```bash
+docker pull quay.io/minio/mc:latest
+docker tag quay.io/minio/mc:latest minio/mc:latest
+```
+
+Then re-run `up`. This only needs doing once per machine (the local tag
+persists across restarts).
+
 Then mint a self-host API key (the `provision-token` script needs Python;
 this host's `python3` resolves to the Windows Store alias stub, so we ran it
 with the real `python` install instead):
@@ -80,6 +114,13 @@ with the real `python` install instead):
 ADMIN_TOKEN=<value from .env> ADMIN_API_URL=http://127.0.0.1:18057 \
   EMAIL=self-host@vexa.ai SCOPES=bot,tx ./bin/provision-token
 ```
+
+## Pinned version
+
+The submodule is pinned to commit `59e2c413a53479125b70b712ade12ab470d55512`
+— the exact commit already tested end-to-end (bot join + self-hosted
+transcription confirmed working). Don't bump it to "latest" casually;
+re-verify the full flow (join + transcript) after any deliberate update.
 
 ## URLs
 
