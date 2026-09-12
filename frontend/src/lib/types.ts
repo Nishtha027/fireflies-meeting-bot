@@ -65,6 +65,18 @@ export interface SummarizeResponse {
   action_items: ActionItem[];
 }
 
+export interface SearchResult {
+  meeting_id: number;
+  platform: string;
+  native_meeting_id: string;
+  start_time: string | null;
+  end_time: string | null;
+  status: string;
+  matched_field: string | null;
+  snippet: string | null;
+  rank: number;
+}
+
 export interface ActionItemWithMeeting {
   id: number;
   description: string;

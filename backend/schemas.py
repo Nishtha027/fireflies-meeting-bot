@@ -70,6 +70,27 @@ class SummarizeResponse(BaseModel):
     action_items: list[ActionItemOut]
 
 
+class SearchResult(BaseModel):
+    """One meeting matching a search, with its single best-matching snippet
+    (across overview/key_points/decisions/transcript) so results are grouped
+    by meeting rather than one row per match.
+
+    For a pure date-range browse (no keyword), matched_field is null and
+    snippet is the plain summary preview instead of a highlighted match -
+    the frontend renders those with the existing MeetingCard component
+    instead of the highlighted-snippet search result style."""
+
+    meeting_id: int
+    platform: str
+    native_meeting_id: str
+    start_time: datetime | None
+    end_time: datetime | None
+    status: str
+    matched_field: str | None
+    snippet: str | None
+    rank: float
+
+
 class ActionItemWithMeeting(BaseModel):
     """An action item plus enough of its parent meeting's context to link
     back to it, so the Tasks page can render a cross-meeting list without

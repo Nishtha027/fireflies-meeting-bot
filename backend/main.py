@@ -15,8 +15,9 @@ standalone scripts use.
 import os
 import sys
 import traceback
+from datetime import date
 
-from fastapi import Depends, FastAPI, HTTPException, Path
+from fastapi import Depends, FastAPI, HTTPException, Path, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -32,6 +33,7 @@ from schemas import (
     IngestResponse,
     MeetingDetail,
     MeetingListItem,
+    SearchResult,
     SummarizeResponse,
     SummaryOut,
     TranscriptSegmentOut,
@@ -135,6 +137,153 @@ def list_action_items(db: Session = Depends(get_db)):
             meeting_start_time=meeting.start_time,
         )
         for item, meeting in rows
+    ]
+
+
+# Full-text search across, for each meeting: its summary overview, key
+# points, decisions, and every transcript segment. Computed live per request
+# (no tsvector column/GIN index) since the dataset is small - see the final
+# report for when that would be worth adding.
+#
+# Each field is unioned into a common (meeting_id, field, content) shape,
+# ranked with ts_rank_cd, then reduced to one row per meeting (DISTINCT ON)
+# so results are grouped by meeting rather than one row per matching
+# segment. Ties (common for short, similarly-sized fields under
+# ts_rank_cd's default, non-length-normalized scoring) are broken toward
+# curated summary content over raw transcript utterances.
+SEARCH_SQL = text("""
+    WITH candidates AS (
+        SELECT s.meeting_id, 'summary' AS field, s.overview_text AS content
+        FROM summaries s
+        WHERE s.overview_text IS NOT NULL AND s.overview_text <> ''
+
+        UNION ALL
+
+        SELECT s.meeting_id, 'key_point' AS field, kp.value AS content
+        FROM summaries s
+        CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(s.key_points, '[]'::json)::jsonb) AS kp(value)
+
+        UNION ALL
+
+        SELECT s.meeting_id, 'decision' AS field, d.value AS content
+        FROM summaries s
+        CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(s.decisions, '[]'::json)::jsonb) AS d(value)
+
+        UNION ALL
+
+        SELECT ts.meeting_id, 'transcript' AS field, ts.text AS content
+        FROM transcript_segments ts
+    ),
+    query AS (
+        SELECT websearch_to_tsquery('english', :q) AS tsq
+    ),
+    ranked AS (
+        SELECT
+            c.meeting_id,
+            c.field,
+            ts_rank_cd(to_tsvector('english', c.content), q.tsq) AS rank,
+            ts_headline(
+                'english', c.content, q.tsq,
+                'StartSel=⟪, StopSel=⟫, MaxFragments=1, MaxWords=30, MinWords=10'
+            ) AS snippet
+        FROM candidates c, query q
+        WHERE to_tsvector('english', c.content) @@ q.tsq
+    ),
+    best AS (
+        SELECT DISTINCT ON (meeting_id) meeting_id, field, rank, snippet
+        FROM ranked
+        ORDER BY
+            meeting_id,
+            rank DESC,
+            CASE field
+                WHEN 'decision' THEN 1
+                WHEN 'key_point' THEN 2
+                WHEN 'summary' THEN 3
+                WHEN 'transcript' THEN 4
+            END
+    )
+    SELECT
+        m.id AS meeting_id,
+        m.platform,
+        m.native_meeting_id,
+        m.start_time,
+        m.end_time,
+        m.status,
+        b.field AS matched_field,
+        b.snippet,
+        b.rank
+    FROM best b
+    JOIN meetings m ON m.id = b.meeting_id
+    WHERE (CAST(:from_date AS date) IS NULL OR m.start_time >= CAST(:from_date AS date))
+      AND (CAST(:to_date AS date) IS NULL OR m.start_time < CAST(:to_date AS date) + INTERVAL '1 day')
+    ORDER BY b.rank DESC
+""")
+
+# Pure date-range browse, no keyword: same response shape as a keyword
+# match (so the frontend can share result-rendering plumbing), but sorted
+# chronologically instead of by relevance, with the summary's overview
+# (truncated the same way /meetings already does for overview_preview) as
+# the snippet and matched_field left null - the frontend uses that null to
+# render these with the plain MeetingCard instead of a highlighted-snippet
+# card, since there's no keyword match to highlight.
+DATE_ONLY_SQL = text("""
+    SELECT
+        m.id AS meeting_id,
+        m.platform,
+        m.native_meeting_id,
+        m.start_time,
+        m.end_time,
+        m.status,
+        NULL AS matched_field,
+        LEFT(s.overview_text, 100) AS snippet,
+        0.0 AS rank
+    FROM meetings m
+    LEFT JOIN summaries s ON s.meeting_id = m.id
+    WHERE (CAST(:from_date AS date) IS NULL OR m.start_time >= CAST(:from_date AS date))
+      AND (CAST(:to_date AS date) IS NULL OR m.start_time < CAST(:to_date AS date) + INTERVAL '1 day')
+    ORDER BY m.start_time DESC NULLS LAST
+""")
+
+
+@app.get("/search", response_model=list[SearchResult])
+def search_meetings(
+    q: str = Query(default=""),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    if from_date is not None and to_date is not None and from_date > to_date:
+        raise HTTPException(
+            status_code=400,
+            detail="from_date must not be after to_date.",
+        )
+
+    query = q.strip()
+    has_keyword = len(query) >= 2
+    has_date_filter = from_date is not None or to_date is not None
+
+    if not has_keyword and not has_date_filter:
+        return []
+
+    params = {"from_date": from_date, "to_date": to_date}
+    if has_keyword:
+        rows = db.execute(SEARCH_SQL, {**params, "q": query}).mappings().all()
+    else:
+        rows = db.execute(DATE_ONLY_SQL, params).mappings().all()
+
+    return [
+        SearchResult(
+            meeting_id=row["meeting_id"],
+            platform=row["platform"],
+            native_meeting_id=row["native_meeting_id"],
+            start_time=row["start_time"],
+            end_time=row["end_time"],
+            status=row["status"],
+            matched_field=row["matched_field"],
+            snippet=row["snippet"],
+            rank=float(row["rank"]),
+        )
+        for row in rows
     ]
 
 

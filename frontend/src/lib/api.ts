@@ -4,6 +4,7 @@ import type {
   IngestResponse,
   MeetingDetail,
   MeetingListItem,
+  SearchResult,
   SummarizeResponse,
 } from "./types";
 
@@ -74,4 +75,18 @@ export function summarizeMeeting(id: number): Promise<SummarizeResponse> {
 
 export function getActionItems(): Promise<ActionItemWithMeeting[]> {
   return request<ActionItemWithMeeting[]>("/action-items");
+}
+
+export interface SearchParams {
+  q?: string;
+  fromDate?: string;
+  toDate?: string;
+}
+
+export function searchMeetings(params: SearchParams): Promise<SearchResult[]> {
+  const usp = new URLSearchParams();
+  if (params.q) usp.set("q", params.q);
+  if (params.fromDate) usp.set("from_date", params.fromDate);
+  if (params.toDate) usp.set("to_date", params.toDate);
+  return request<SearchResult[]>(`/search?${usp.toString()}`);
 }
