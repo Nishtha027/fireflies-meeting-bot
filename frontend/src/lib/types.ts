@@ -154,16 +154,13 @@ export interface CaptureStatusResponse {
   summarize_error: string | null;
 }
 
-export interface SetupStatusResponse {
-  account_exists: boolean;
-}
-
 export interface AuthResponse {
   success: boolean;
 }
 
 export interface MeResponse {
   authenticated: boolean;
+  id: number | null;
   name: string | null;
   email: string | null;
 }

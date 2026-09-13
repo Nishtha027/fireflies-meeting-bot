@@ -83,9 +83,18 @@ def _parse_ts(value: str | None):
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def ingest(platform: str, native_meeting_id: str) -> IngestResult:
+def ingest(platform: str, native_meeting_id: str, meeting_id: int | None = None) -> IngestResult:
     """Fetch + upsert a meeting's transcript. Raises IngestError subclasses on
-    failure - never calls sys.exit(), so it's safe to call from a web request."""
+    failure - never calls sys.exit(), so it's safe to call from a web request.
+
+    Pass meeting_id when the caller already has a specific row in hand (as
+    main.py and capture_meeting.py always do, after their own ownership
+    check) - under multi-user, more than one Meeting row can share the same
+    (platform, native_meeting_id), one per owner, so looking it up by that
+    pair alone would be ambiguous. meeting_id is omitted only by this
+    module's own CLI, a trusted local operator tool with no per-user
+    request to scope to; it falls back to the first row matching the
+    natural key."""
     print(f"Fetching transcript for {platform}/{native_meeting_id} from Vexa...")
     data = fetch_transcript(platform, native_meeting_id)
 
@@ -96,11 +105,15 @@ def ingest(platform: str, native_meeting_id: str) -> IngestResult:
 
     session = SessionLocal()
     try:
-        meeting = (
-            session.query(Meeting)
-            .filter_by(platform=platform, native_meeting_id=native_meeting_id)
-            .one_or_none()
-        )
+        if meeting_id is not None:
+            meeting = session.get(Meeting, meeting_id)
+        else:
+            meeting = (
+                session.query(Meeting)
+                .filter_by(platform=platform, native_meeting_id=native_meeting_id)
+                .order_by(Meeting.id)
+                .first()
+            )
         if meeting is None:
             meeting = Meeting(platform=platform, native_meeting_id=native_meeting_id)
             session.add(meeting)

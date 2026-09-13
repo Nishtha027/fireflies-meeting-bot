@@ -2,81 +2,59 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { getAuthStatus, getSetupStatus } from "@/lib/api";
+import { getAuthStatus } from "@/lib/api";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
-const PUBLIC_PATHS = new Set(["/login", "/setup"]);
+const PUBLIC_PATHS = new Set(["/login", "/register"]);
 
-type Phase = "checking" | "needs-setup" | "needs-login" | "authed";
+type AuthState = "checking" | "authed" | "anon";
 
 /**
- * Gates every page behind two checks - GET /auth/setup-status (has the one
- * account been created yet?) and GET /auth/me (is this request logged in?)
- * - and swaps the app's chrome in/out accordingly:
- *
- *   no account yet        -> /setup (first-run, standalone, no chrome)
- *   account exists, anon  -> /login (standalone, no chrome)
- *   authed                -> everything else, behind Sidebar+TopBar
- *
- * /setup bounces to /login once an account exists (it's a one-time
- * first-run flow, not an open signup page) and /login bounces to /setup if
- * no account exists yet - so neither screen is reachable in the wrong phase
- * even by typing the URL directly.
+ * Gates every page behind a session check and swaps the app's chrome
+ * in/out: /login and /register render standalone (no sidebar/top bar),
+ * everything else renders behind Sidebar+TopBar only once GET /auth/me
+ * confirms a session.
  *
  * Re-checks on every navigation (not just first mount) so a session that
- * expires mid-use gets caught on the next click - but doesn't reset to
- * "checking" between navigations, so switching pages while already logged
- * in never flashes a loading state.
+ * expires mid-use gets caught on the next click, not just on a hard
+ * refresh - but doesn't reset to "checking" between navigations, so
+ * switching pages while already logged in never flashes a loading state.
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [phase, setPhase] = useState<Phase>("checking");
+  const isPublicPath = PUBLIC_PATHS.has(pathname);
+  const [authState, setAuthState] = useState<AuthState>("checking");
 
   useEffect(() => {
     let cancelled = false;
-
-    async function check() {
-      try {
-        const setupStatus = await getSetupStatus();
-        if (!setupStatus.account_exists) {
-          if (!cancelled) setPhase("needs-setup");
-          return;
-        }
-        const me = await getAuthStatus();
-        if (!cancelled) setPhase(me.authenticated ? "authed" : "needs-login");
-      } catch {
-        if (!cancelled) setPhase("needs-login");
-      }
-    }
-
-    check();
+    getAuthStatus()
+      .then((data) => {
+        if (!cancelled) setAuthState(data.authenticated ? "authed" : "anon");
+      })
+      .catch(() => {
+        if (!cancelled) setAuthState("anon");
+      });
     return () => {
       cancelled = true;
     };
   }, [pathname]);
 
   useEffect(() => {
-    if (phase === "checking") return;
-    if (phase === "needs-setup" && pathname !== "/setup") {
-      router.replace("/setup");
-    } else if (phase === "needs-login" && pathname !== "/login") {
+    if (authState === "checking") return;
+    if (authState === "anon" && !isPublicPath) {
       router.replace("/login");
-    } else if (phase === "authed" && PUBLIC_PATHS.has(pathname)) {
+    } else if (authState === "authed" && isPublicPath) {
       router.replace("/");
     }
-  }, [phase, pathname, router]);
+  }, [authState, isPublicPath, router]);
 
-  const rendersOwnScreen =
-    (phase === "needs-setup" && pathname === "/setup") ||
-    (phase === "needs-login" && pathname === "/login");
-
-  if (rendersOwnScreen) {
+  if (isPublicPath) {
     return <>{children}</>;
   }
 
-  if (phase !== "authed") {
+  if (authState !== "authed") {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-slate-50">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-indigo-600" />

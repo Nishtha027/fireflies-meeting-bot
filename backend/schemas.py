@@ -196,11 +196,7 @@ class CaptureStatusResponse(BaseModel):
     summarize_error: str | None
 
 
-class SetupStatusResponse(BaseModel):
-    account_exists: bool
-
-
-class SetupRequest(BaseModel):
+class RegisterRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     email: EmailStr
     password: str = Field(min_length=8, max_length=200)
@@ -217,5 +213,6 @@ class AuthResponse(BaseModel):
 
 class MeResponse(BaseModel):
     authenticated: bool
+    id: int | None
     name: str | None
     email: str | None

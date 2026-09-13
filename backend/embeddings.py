@@ -129,7 +129,12 @@ class Chunk:
 
 def _meeting_metadata(meeting: Meeting) -> dict:
     # Chroma metadata values must be str/int/float/bool - no None - so
-    # start_time is only included when the meeting actually has one.
+    # start_time and user_id are only included when the meeting actually
+    # has one. A legacy meeting with no owner yet (user_id is None) is
+    # embedded with no "user_id" key at all, rather than some placeholder -
+    # chat.py's retrieval always filters by an exact user_id match, so a
+    # chunk with no user_id key can never surface in any user's answers
+    # until the meeting is actually assigned an owner and re-embedded.
     meta = {
         "meeting_id": meeting.id,
         "platform": meeting.platform,
@@ -137,6 +142,8 @@ def _meeting_metadata(meeting: Meeting) -> dict:
     }
     if meeting.start_time is not None:
         meta["start_time"] = meeting.start_time.isoformat()
+    if meeting.user_id is not None:
+        meta["user_id"] = meeting.user_id
     return meta
 
 
@@ -272,13 +279,22 @@ class EmbedAllSummary:
     skipped_no_content: list[int] = field(default_factory=list)
 
 
-def embed_all() -> EmbedAllSummary:
+def embed_all(user_id: int | None = None) -> EmbedAllSummary:
     """Embed every meeting that doesn't already have chunks in Chroma.
     Meetings already embedded, or with nothing to embed, are reported
-    separately rather than silently skipped."""
+    separately rather than silently skipped.
+
+    When user_id is given (the web POST /embed-all endpoint always passes
+    the current user), only that user's own meetings are considered - one
+    user's request should never cause the system to read, chunk, and embed
+    another user's private meeting content. The CLI's --all flag omits it,
+    for a trusted local operator embedding everything at once."""
     session = SessionLocal()
     try:
-        all_ids = [m.id for m in session.query(Meeting.id).all()]
+        query = session.query(Meeting.id)
+        if user_id is not None:
+            query = query.filter_by(user_id=user_id)
+        all_ids = [m.id for m in query.all()]
     finally:
         session.close()
 

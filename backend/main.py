@@ -24,20 +24,19 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import ActionItem, Meeting, Summary, TranscriptSegment
+from app.models import ActionItem, Meeting, Summary, TranscriptSegment, User
 from analytics import (
     MeetingNotFoundError as AnalyticsMeetingNotFoundError,
     get_analytics_overview,
     get_meeting_analytics,
 )
 from auth import (
-    AccountExistsError,
     AuthConfigError,
+    EmailAlreadyRegisteredError,
     InvalidCredentialsError,
-    account_exists,
     create_access_token,
-    create_account,
-    get_current_account,
+    get_current_user,
+    register_user,
     require_auth,
     verify_credentials,
 )
@@ -88,9 +87,8 @@ from schemas import (
     MeetingDetail,
     MeetingListItem,
     MeResponse,
+    RegisterRequest,
     SearchResult,
-    SetupRequest,
-    SetupStatusResponse,
     SpeakerTalkTimeOut,
     SummarizeResponse,
     SummaryOut,
@@ -166,8 +164,8 @@ def health(db: Session = Depends(get_db)):
     return HealthResponse(status="ok", database="connected")
 
 
-def _set_session_cookie(response: Response, email: str) -> None:
-    token = create_access_token(email)
+def _set_session_cookie(response: Response, user_id: int) -> None:
+    token = create_access_token(user_id)
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
@@ -179,32 +177,27 @@ def _set_session_cookie(response: Response, email: str) -> None:
     )
 
 
-@app.get("/auth/setup-status", response_model=SetupStatusResponse)
-def setup_status(db: Session = Depends(get_db)):
-    return SetupStatusResponse(account_exists=account_exists(db))
-
-
-@app.post("/auth/setup", response_model=AuthResponse)
-def setup(payload: SetupRequest, response: Response, db: Session = Depends(get_db)):
+@app.post("/auth/register", response_model=AuthResponse)
+def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
     try:
-        account = create_account(db, payload.name, payload.email, payload.password)
-    except AccountExistsError as exc:
+        user = register_user(db, payload.name, payload.email, payload.password)
+    except EmailAlreadyRegisteredError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    _set_session_cookie(response, account.email)
+    _set_session_cookie(response, user.id)
     return AuthResponse(success=True)
 
 
 @app.post("/auth/login", response_model=AuthResponse)
 def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
     try:
-        account = verify_credentials(db, payload.email, payload.password)
+        user = verify_credentials(db, payload.email, payload.password)
     except InvalidCredentialsError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
     except AuthConfigError as exc:
         raise HTTPException(status_code=500, detail=f"Login is misconfigured: {exc}")
 
-    _set_session_cookie(response, account.email)
+    _set_session_cookie(response, user.id)
     return AuthResponse(success=True)
 
 
@@ -215,17 +208,23 @@ def logout(response: Response):
 
 
 @app.get("/auth/me", response_model=MeResponse)
-def me(account=Depends(get_current_account)):
+def me(user: User | None = Depends(get_current_user)):
     return MeResponse(
-        authenticated=account is not None,
-        name=account.name if account else None,
-        email=account.email if account else None,
+        authenticated=user is not None,
+        id=user.id if user else None,
+        name=user.name if user else None,
+        email=user.email if user else None,
     )
 
 
 @protected.get("/meetings", response_model=list[MeetingListItem])
-def list_meetings(db: Session = Depends(get_db)):
-    meetings = db.query(Meeting).order_by(Meeting.start_time.desc().nullslast()).all()
+def list_meetings(current_user: User = Depends(require_auth), db: Session = Depends(get_db)):
+    meetings = (
+        db.query(Meeting)
+        .filter_by(user_id=current_user.id)
+        .order_by(Meeting.start_time.desc().nullslast())
+        .all()
+    )
 
     items = []
     for meeting in meetings:
@@ -246,12 +245,13 @@ def list_meetings(db: Session = Depends(get_db)):
 
 
 @protected.get("/action-items", response_model=list[ActionItemWithMeeting])
-def list_action_items(db: Session = Depends(get_db)):
+def list_action_items(current_user: User = Depends(require_auth), db: Session = Depends(get_db)):
     # One join, not N+1: the Tasks page needs every action item across every
     # meeting plus enough meeting context to link back, in a single request.
     rows = (
         db.query(ActionItem, Meeting)
         .join(Meeting, ActionItem.meeting_id == Meeting.id)
+        .filter(Meeting.user_id == current_user.id)
         .order_by(ActionItem.generated_at.desc())
         .all()
     )
@@ -272,7 +272,9 @@ def list_action_items(db: Session = Depends(get_db)):
 
 
 @protected.post("/meetings/start", response_model=CaptureMeetingResponse)
-def start_meeting_capture(payload: CaptureMeetingRequest):
+def start_meeting_capture(
+    payload: CaptureMeetingRequest, current_user: User = Depends(require_auth)
+):
     meeting_url = payload.meeting_url.strip()
     if "meet.google.com" not in meeting_url.lower():
         raise HTTPException(
@@ -281,7 +283,7 @@ def start_meeting_capture(payload: CaptureMeetingRequest):
         )
 
     try:
-        result = start_capture(meeting_url)
+        result = start_capture(meeting_url, current_user.id)
     except InvalidMeetingUrlError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except CaptureConflictError as exc:
@@ -305,7 +307,15 @@ def start_meeting_capture(payload: CaptureMeetingRequest):
 
 
 @protected.get("/meetings/{meeting_id}/capture-status", response_model=CaptureStatusResponse)
-def get_meeting_capture_status(meeting_id: int = Path(..., gt=0)):
+def get_meeting_capture_status(
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    meeting = db.get(Meeting, meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+
     try:
         result = get_capture_status(meeting_id)
     except CaptureMeetingNotFoundError as exc:
@@ -328,17 +338,21 @@ def get_meeting_capture_status(meeting_id: int = Path(..., gt=0)):
 def update_action_item(
     payload: ActionItemUpdate,
     action_item_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
     item = db.get(ActionItem, action_item_id)
     if item is None:
         raise HTTPException(status_code=404, detail=f"No action item with id={action_item_id}.")
 
+    meeting = db.get(Meeting, item.meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No action item with id={action_item_id}.")
+
     item.completed = payload.completed
     db.commit()
     db.refresh(item)
 
-    meeting = db.get(Meeting, item.meeting_id)
     return ActionItemWithMeeting(
         id=item.id,
         description=item.description,
@@ -426,7 +440,8 @@ SEARCH_SQL = text("""
         b.rank
     FROM best b
     JOIN meetings m ON m.id = b.meeting_id
-    WHERE (CAST(:from_date AS date) IS NULL OR m.start_time >= CAST(:from_date AS date))
+    WHERE m.user_id = :user_id
+      AND (CAST(:from_date AS date) IS NULL OR m.start_time >= CAST(:from_date AS date))
       AND (CAST(:to_date AS date) IS NULL OR m.start_time < CAST(:to_date AS date) + INTERVAL '1 day')
     ORDER BY b.rank DESC
 """)
@@ -451,7 +466,8 @@ DATE_ONLY_SQL = text("""
         0.0 AS rank
     FROM meetings m
     LEFT JOIN summaries s ON s.meeting_id = m.id
-    WHERE (CAST(:from_date AS date) IS NULL OR m.start_time >= CAST(:from_date AS date))
+    WHERE m.user_id = :user_id
+      AND (CAST(:from_date AS date) IS NULL OR m.start_time >= CAST(:from_date AS date))
       AND (CAST(:to_date AS date) IS NULL OR m.start_time < CAST(:to_date AS date) + INTERVAL '1 day')
     ORDER BY m.start_time DESC NULLS LAST
 """)
@@ -462,6 +478,7 @@ def search_meetings(
     q: str = Query(default=""),
     from_date: date | None = Query(default=None),
     to_date: date | None = Query(default=None),
+    current_user: User = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
     if from_date is not None and to_date is not None and from_date > to_date:
@@ -477,7 +494,7 @@ def search_meetings(
     if not has_keyword and not has_date_filter:
         return []
 
-    params = {"from_date": from_date, "to_date": to_date}
+    params = {"from_date": from_date, "to_date": to_date, "user_id": current_user.id}
     if has_keyword:
         rows = db.execute(SEARCH_SQL, {**params, "q": query}).mappings().all()
     else:
@@ -500,9 +517,13 @@ def search_meetings(
 
 
 @protected.get("/meetings/{meeting_id}", response_model=MeetingDetail)
-def get_meeting(meeting_id: int = Path(..., gt=0), db: Session = Depends(get_db)):
+def get_meeting(
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
     meeting = db.get(Meeting, meeting_id)
-    if meeting is None:
+    if meeting is None or meeting.user_id != current_user.id:
         raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
 
     segments = (
@@ -548,19 +569,21 @@ def get_meeting(meeting_id: int = Path(..., gt=0), db: Session = Depends(get_db)
 
 
 @protected.post("/meetings/{meeting_id}/ingest", response_model=IngestResponse)
-def trigger_ingest(meeting_id: int = Path(..., gt=0), db: Session = Depends(get_db)):
-    # ingest() upserts by (platform, native_meeting_id), not our internal id,
-    # so an existing row is looked up first to know which Vexa meeting to
-    # re-fetch. This endpoint refreshes an already-ingested meeting; it does
-    # not create brand-new meetings from scratch (out of scope here - no
-    # requirement described creating a meeting via this API yet).
+def trigger_ingest(
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    # This endpoint refreshes an already-ingested, already-owned meeting; it
+    # does not create brand-new meetings from scratch (out of scope here -
+    # no requirement described creating a meeting via this API yet).
     meeting = db.get(Meeting, meeting_id)
-    if meeting is None:
+    if meeting is None or meeting.user_id != current_user.id:
         raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
     platform, native_meeting_id = meeting.platform, meeting.native_meeting_id
 
     try:
-        result = ingest(platform, native_meeting_id)
+        result = ingest(platform, native_meeting_id, meeting_id=meeting_id)
     except VexaNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except VexaAPIError as exc:
@@ -578,7 +601,15 @@ def trigger_ingest(meeting_id: int = Path(..., gt=0), db: Session = Depends(get_
 
 
 @protected.post("/meetings/{meeting_id}/summarize", response_model=SummarizeResponse)
-def trigger_summarize(meeting_id: int = Path(..., gt=0)):
+def trigger_summarize(
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    meeting = db.get(Meeting, meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+
     try:
         result = summarize(meeting_id)
     except MeetingNotFoundError as exc:
@@ -608,7 +639,15 @@ def trigger_summarize(meeting_id: int = Path(..., gt=0)):
 
 
 @protected.post("/meetings/{meeting_id}/embed", response_model=EmbedResponse)
-def trigger_embed(meeting_id: int = Path(..., gt=0)):
+def trigger_embed(
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    meeting = db.get(Meeting, meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+
     try:
         count = embed_meeting(meeting_id)
     except EmbedMeetingNotFoundError as exc:
@@ -622,8 +661,8 @@ def trigger_embed(meeting_id: int = Path(..., gt=0)):
 
 
 @protected.post("/embed-all", response_model=EmbedAllResponse)
-def trigger_embed_all():
-    summary = embed_all()
+def trigger_embed_all(current_user: User = Depends(require_auth)):
+    summary = embed_all(current_user.id)
     return EmbedAllResponse(
         success=True,
         embedded=[
@@ -636,9 +675,9 @@ def trigger_embed_all():
 
 
 @protected.post("/chat", response_model=ChatResponse)
-def chat_endpoint(request: ChatRequest):
+def chat_endpoint(request: ChatRequest, current_user: User = Depends(require_auth)):
     try:
-        result = answer_question(request.question)
+        result = answer_question(request.question, current_user.id)
     except EmptyQuestionError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except NoIndexedMeetingsError as exc:
@@ -669,9 +708,11 @@ def chat_endpoint(request: ChatRequest):
 
 
 @protected.get("/meetings/{meeting_id}/analytics", response_model=MeetingAnalyticsOut)
-def get_meeting_analytics_endpoint(meeting_id: int = Path(..., gt=0)):
+def get_meeting_analytics_endpoint(
+    meeting_id: int = Path(..., gt=0), current_user: User = Depends(require_auth)
+):
     try:
-        result = get_meeting_analytics(meeting_id)
+        result = get_meeting_analytics(meeting_id, current_user.id)
     except AnalyticsMeetingNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -690,8 +731,8 @@ def get_meeting_analytics_endpoint(meeting_id: int = Path(..., gt=0)):
 
 
 @protected.get("/analytics/overview", response_model=AnalyticsOverviewOut)
-def get_analytics_overview_endpoint():
-    result = get_analytics_overview()
+def get_analytics_overview_endpoint(current_user: User = Depends(require_auth)):
+    result = get_analytics_overview(current_user.id)
     return AnalyticsOverviewOut(
         total_meetings=result.total_meetings,
         total_duration_seconds=result.total_duration_seconds,

@@ -3,7 +3,6 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     Boolean,
-    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -18,19 +17,48 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
 
+class User(Base):
+    """A real, independent registered account - open registration, no admin
+    approval. Every meeting a user captures belongs to them via
+    Meeting.user_id; nothing here implies or grants visibility into any
+    other user's data."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    email: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    meetings: Mapped[list["Meeting"]] = relationship(back_populates="owner")
+
+
 class Meeting(Base):
     __tablename__ = "meetings"
     __table_args__ = (
-        UniqueConstraint("platform", "native_meeting_id", name="uq_meetings_platform_native_id"),
+        UniqueConstraint(
+            "user_id", "platform", "native_meeting_id", name="uq_meetings_user_platform_native_id"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Nullable: legacy meetings captured before multi-user support has no
+    # owner yet (see the auth migration's docstring for how those are
+    # handled). SET NULL on delete rather than CASCADE - deleting a user
+    # account isn't exposed anywhere today, but if it ever is, their past
+    # meetings becoming ownerless again is the safer default over silently
+    # deleting recorded transcripts.
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
     source_link: Mapped[str | None] = mapped_column(String, nullable=True)
     # Vexa is multi-platform (google_meet, teams, zoom); native_meeting_id is
-    # Vexa's own per-platform meeting code (e.g. "abc-defg-hij"). The pair is
-    # unique-constrained so re-running the ingestion script against the same
-    # meeting updates it in place instead of creating a duplicate row.
+    # Vexa's own per-platform meeting code (e.g. "abc-defg-hij"). Uniqueness
+    # is scoped per-user (not globally) so two different users can each
+    # independently capture "the same" external link (e.g. a recurring
+    # standup) as their own separate, privately-owned meeting - re-running
+    # capture/ingestion for the SAME user against the same meeting still
+    # updates their own row in place instead of creating a duplicate.
     platform: Mapped[str] = mapped_column(String, nullable=False)
     native_meeting_id: Mapped[str] = mapped_column(String, nullable=False)
     # Vexa's own internal integer meeting id, kept for direct traceability
@@ -41,6 +69,7 @@ class Meeting(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    owner: Mapped["User | None"] = relationship(back_populates="meetings")
     segments: Mapped[list["TranscriptSegment"]] = relationship(
         back_populates="meeting", cascade="all, delete-orphan"
     )
@@ -114,24 +143,3 @@ class ActionItem(Base):
     )
 
     meeting: Mapped["Meeting"] = relationship(back_populates="action_items")
-
-
-class AdminAccount(Base):
-    """The one account, ever - not a users table. Its primary key is
-    hardcoded to id=1 everywhere it's created (see auth.create_account), and
-    CHECK(id = 1) means a second row is rejected by Postgres itself (a
-    primary-key collision on id=1) no matter what application code does -
-    this is what actually guarantees "only one account, ever," not just the
-    existence-check in auth.py."""
-
-    __tablename__ = "admin_account"
-    __table_args__ = (
-        CheckConstraint("id = 1", name="ck_admin_account_singleton"),
-        UniqueConstraint("email", name="uq_admin_account_email"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String, nullable=False)
-    email: Mapped[str] = mapped_column(String, nullable=False)
-    password_hash: Mapped[str] = mapped_column(String, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

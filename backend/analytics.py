@@ -72,13 +72,15 @@ def _talk_time_by_speaker(segments: list[TranscriptSegment]) -> dict[str, float]
     return talk_time
 
 
-def get_meeting_analytics(meeting_id: int) -> MeetingAnalytics:
-    """Raises MeetingNotFoundError - never calls sys.exit(), safe to call
-    from a web request."""
+def get_meeting_analytics(meeting_id: int, user_id: int) -> MeetingAnalytics:
+    """Raises MeetingNotFoundError - both when the meeting truly doesn't
+    exist and when it belongs to someone other than user_id, so a caller
+    can't tell the two apart (don't reveal another user's meeting exists).
+    Never calls sys.exit(), safe to call from a web request."""
     session = SessionLocal()
     try:
         meeting = session.get(Meeting, meeting_id)
-        if meeting is None:
+        if meeting is None or meeting.user_id != user_id:
             raise MeetingNotFoundError(f"no meeting with id={meeting_id} in the database.")
 
         segments = session.query(TranscriptSegment).filter_by(meeting_id=meeting_id).all()
@@ -111,11 +113,20 @@ def get_meeting_analytics(meeting_id: int) -> MeetingAnalytics:
     )
 
 
-def get_analytics_overview() -> AnalyticsOverview:
+def get_analytics_overview(user_id: int) -> AnalyticsOverview:
+    """Aggregates only across user_id's own meetings - never another
+    user's, even in a global-sounding "overview"."""
     session = SessionLocal()
     try:
-        meetings = session.query(Meeting).all()
-        segments = session.query(TranscriptSegment).all()
+        meetings = session.query(Meeting).filter_by(user_id=user_id).all()
+        meeting_ids = [m.id for m in meetings]
+        segments = (
+            session.query(TranscriptSegment)
+            .filter(TranscriptSegment.meeting_id.in_(meeting_ids))
+            .all()
+            if meeting_ids
+            else []
+        )
     finally:
         session.close()
 

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ApiError, NetworkError, setupAccount } from "@/lib/api";
+import { ApiError, NetworkError, register } from "@/lib/api";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function SetupPage() {
+export default function RegisterPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -38,16 +39,15 @@ export default function SetupPage() {
 
     setSubmitting(true);
     try {
-      await setupAccount(name.trim(), email.trim(), password);
+      await register(name.trim(), email.trim(), password);
       router.replace("/");
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setError("An account already exists. Redirecting you to sign in...");
-        setTimeout(() => router.replace("/login"), 1500);
+        setError("An account with this email already exists.");
       } else if (err instanceof NetworkError || err instanceof ApiError) {
         setError(err.message);
       } else {
-        setError("Something went wrong setting up your account.");
+        setError("Something went wrong creating your account.");
       }
     } finally {
       setSubmitting(false);
@@ -66,12 +66,9 @@ export default function SetupPage() {
           </span>
         </div>
 
-        <h1 className="text-xl font-semibold text-slate-900">
-          Set up your account
-        </h1>
+        <h1 className="text-xl font-semibold text-slate-900">Create your account</h1>
         <p className="mt-1 text-sm text-slate-500">
-          This is a one-time setup - you&apos;ll sign in with these details
-          from now on.
+          Your own private space for the meetings you capture.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
@@ -146,9 +143,16 @@ export default function SetupPage() {
             disabled={submitting || !name || !email || !password || !confirmPassword}
             className="mt-2 w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {submitting ? "Setting up…" : "Create account"}
+            {submitting ? "Creating account…" : "Create account"}
           </button>
         </form>
+
+        <p className="mt-6 text-center text-sm text-slate-500">
+          Already have an account?{" "}
+          <Link href="/login" className="font-medium text-indigo-600 hover:text-indigo-700">
+            Sign in
+          </Link>
+        </p>
       </div>
     </main>
   );

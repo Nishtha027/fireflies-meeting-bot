@@ -2,8 +2,9 @@
 Answer natural-language questions about the user's own meetings using
 retrieval-augmented generation: embed the question with the same local
 model used to index meetings, retrieve the top-k most relevant chunks from
-Chroma across every meeting, then ask Groq to answer using ONLY that
-retrieved context (reusing the shared Groq client, not a separate
+Chroma across every meeting THAT USER OWNS (never another user's - see the
+user_id filter in answer_question() below), then ask Groq to answer using
+ONLY that retrieved context (reusing the shared Groq client, not a separate
 integration).
 
 Single-turn only, per project scope: each call answers one question fresh
@@ -117,9 +118,16 @@ def _build_context(ids: list[str], documents: list[str], metadatas: list[dict]) 
     return "\n\n".join(parts)
 
 
-def answer_question(question: str) -> ChatResult:
+def answer_question(question: str, user_id: int) -> ChatResult:
     """Raises ChatError/GroqError subclasses - never calls sys.exit(), safe
-    to call from a web request."""
+    to call from a web request.
+
+    Retrieval is filtered to user_id's own embedded chunks (a Chroma `where`
+    match on metadata.user_id - see embeddings.py) at every step, including
+    the "has anything been indexed" check below: a collection that has
+    plenty of OTHER users' chunks but none of this user's must still behave
+    as if nothing has been indexed for them, never fall through to a
+    cross-user answer."""
     question = question.strip()
     if not question:
         raise EmptyQuestionError("question must not be empty.")
@@ -127,7 +135,8 @@ def answer_question(question: str) -> ChatResult:
     api_key = require_api_key()
 
     collection = get_collection()
-    if collection.count() == 0:
+    user_chunks = collection.get(where={"user_id": user_id})
+    if not user_chunks["ids"]:
         raise NoIndexedMeetingsError(
             "No meetings have been indexed for chat yet. Run POST /embed-all first."
         )
@@ -135,7 +144,11 @@ def answer_question(question: str) -> ChatResult:
     model = get_model()
     question_embedding = model.encode([question]).tolist()
 
-    results = collection.query(query_embeddings=question_embedding, n_results=TOP_K)
+    results = collection.query(
+        query_embeddings=question_embedding,
+        n_results=TOP_K,
+        where={"user_id": user_id},
+    )
     ids = results["ids"][0]
     documents = results["documents"][0]
     metadatas = results["metadatas"][0]

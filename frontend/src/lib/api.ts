@@ -13,14 +13,13 @@ import type {
   MeetingListItem,
   MeResponse,
   SearchResult,
-  SetupStatusResponse,
   SummarizeResponse,
 } from "./types";
 
 /** Paths the app renders without a session - never bounce these back to
  * themselves on a 401 (avoids a redirect loop, and /auth/me is expected to
  * be called while logged out). */
-const PUBLIC_PATHS = ["/login", "/setup"];
+const PUBLIC_PATHS = ["/login", "/register"];
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -169,16 +168,12 @@ export function getCaptureStatus(id: number): Promise<CaptureStatusResponse> {
   return request<CaptureStatusResponse>(`/meetings/${id}/capture-status`);
 }
 
-export function getSetupStatus(): Promise<SetupStatusResponse> {
-  return request<SetupStatusResponse>("/auth/setup-status");
-}
-
-export function setupAccount(
+export function register(
   name: string,
   email: string,
   password: string,
 ): Promise<AuthResponse> {
-  return request<AuthResponse>("/auth/setup", {
+  return request<AuthResponse>("/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, email, password }),

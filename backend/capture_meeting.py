@@ -90,10 +90,16 @@ class CaptureStatusResult:
     summarize_error: str | None
 
 
-def start_capture(meeting_url: str, bot_name: str = "Meetscribe") -> CaptureResult:
+def start_capture(meeting_url: str, user_id: int, bot_name: str = "Meetscribe") -> CaptureResult:
     """Send a bot to meeting_url via Vexa's POST /bots. Vexa parses the URL
     itself (platform + native_meeting_id), so we don't duplicate that
-    parsing here - we just relay whatever it resolves the link to."""
+    parsing here - we just relay whatever it resolves the link to.
+
+    The (user_id, platform, native_meeting_id) lookup below means a
+    different user capturing the same external link (e.g. a recurring
+    standup) always gets their own new, separately-owned Meeting row rather
+    than reusing/repurposing whatever row another user already has for
+    that link."""
     try:
         api_base = os.environ["VEXA_API_BASE"]
         api_key = os.environ["VEXA_API_KEY"]
@@ -146,11 +152,11 @@ def start_capture(meeting_url: str, bot_name: str = "Meetscribe") -> CaptureResu
     try:
         meeting = (
             session.query(Meeting)
-            .filter_by(platform=platform, native_meeting_id=native_meeting_id)
+            .filter_by(user_id=user_id, platform=platform, native_meeting_id=native_meeting_id)
             .one_or_none()
         )
         if meeting is None:
-            meeting = Meeting(platform=platform, native_meeting_id=native_meeting_id)
+            meeting = Meeting(user_id=user_id, platform=platform, native_meeting_id=native_meeting_id)
             session.add(meeting)
 
         meeting.source_link = data.get("constructed_meeting_url") or meeting_url
@@ -191,7 +197,7 @@ def get_capture_status(meeting_id: int) -> CaptureStatusResult:
         session.close()
 
     try:
-        result = ingest(platform, native_meeting_id)
+        result = ingest(platform, native_meeting_id, meeting_id=meeting_id)
     except VexaNotFoundError:
         # The bot was just requested - Vexa may not have indexed the
         # transcript lookup for it yet. Report our last-known status
