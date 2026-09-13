@@ -12,9 +12,11 @@ logic, it imports and calls the same ingest()/summarize() functions the
 standalone scripts use.
 """
 
+import logging
 import os
 import sys
 import traceback
+from contextlib import asynccontextmanager
 from datetime import date
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Query, Response
@@ -65,6 +67,7 @@ from embeddings import (
 )
 from embeddings import MeetingNotFoundError as EmbedMeetingNotFoundError
 from ingest_transcript import IngestError, VexaAPIError, VexaNotFoundError, ingest
+from poller import start_scheduler, stop_scheduler
 from schemas import (
     ActionItemOut,
     ActionItemUpdate,
@@ -111,7 +114,20 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-app = FastAPI(title="Fireflies Clone API", version="0.1.0")
+# So poller.py's logger.info/warning calls are actually visible - without
+# this, Python's logging module has no configured handler and silently
+# drops everything below WARNING.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    start_scheduler()
+    yield
+    stop_scheduler()
+
+
+app = FastAPI(title="Fireflies Clone API", version="0.1.0", lifespan=lifespan)
 
 # Next.js's default dev server port is 3000. No frontend exists yet, so this
 # is intentionally overridable via an env var without touching code once one

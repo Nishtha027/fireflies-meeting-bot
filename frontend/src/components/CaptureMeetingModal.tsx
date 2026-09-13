@@ -4,11 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { ApiError, captureMeeting, getCaptureStatus, NetworkError } from "@/lib/api";
+import { TERMINAL_CAPTURE_STATUSES as TERMINAL_STATUSES } from "@/lib/captureStatus";
 import { Modal } from "./Modal";
 
 const POLL_INTERVAL_MS = 4000;
 const MAX_CONSECUTIVE_POLL_ERRORS = 5;
-const TERMINAL_STATUSES = new Set(["completed", "failed"]);
 
 const STATUS_MESSAGES: Record<string, string> = {
   requested: "Bot dispatched — waiting to join the call…",
@@ -36,6 +36,13 @@ export function CaptureMeetingModal({ onClose }: { onClose: () => void }) {
 
   const consecutiveErrorsRef = useRef(0);
 
+  // Live UI feedback only, for whoever's actively watching this modal - not
+  // load-bearing. The backend's own background poller (see backend/poller.py)
+  // independently checks every in-progress meeting on its own schedule and
+  // triggers ingestion/summarization on completion regardless of whether
+  // this modal - or any tab - is even open. If this interval never got
+  // another chance to run (closed modal, closed tab), the meeting still
+  // completes and gets summarized on its own.
   useEffect(() => {
     if (capture === null || TERMINAL_STATUSES.has(capture.status)) return;
 
@@ -182,7 +189,10 @@ export function CaptureMeetingModal({ onClose }: { onClose: () => void }) {
 
           {!TERMINAL_STATUSES.has(capture.status) && (
             <p className="mt-3 text-xs text-slate-400">
-              Closing this won&apos;t stop the bot &mdash; come back to check on it later.
+              Safe to close &mdash; the meeting will finish processing
+              automatically in the background, even if you close this or
+              leave the page. It&apos;ll be waiting on the meeting page when
+              it&apos;s done.
             </p>
           )}
 

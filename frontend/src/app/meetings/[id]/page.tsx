@@ -5,11 +5,13 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   ApiError,
+  getCaptureStatus,
   getMeeting,
   getMeetingAnalytics,
   NetworkError,
   summarizeMeeting,
 } from "@/lib/api";
+import { isTerminalCaptureStatus } from "@/lib/captureStatus";
 import type { MeetingAnalytics, MeetingDetail } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ErrorState } from "@/components/ErrorState";
@@ -27,6 +29,7 @@ export default function MeetingDetailPage() {
   const [analyticsFailedFor, setAnalyticsFailedFor] = useState<number | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const [summarizeError, setSummarizeError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -38,7 +41,35 @@ export default function MeetingDetailPage() {
     let cancelled = false;
     getMeeting(meetingId)
       .then((data) => {
-        if (!cancelled) setMeeting(data);
+        if (cancelled) return;
+        setMeeting(data);
+
+        // The backend's own background job (see backend/poller.py) is what
+        // actually finishes an in-progress meeting - it runs independently
+        // of this page. This is just a single, one-time check so a page
+        // load that happens to land between the job's cycles doesn't show
+        // stale "Active" for up to a full interval: if the meeting has
+        // already completed by the time this loads, refresh once to show
+        // it. Not a polling loop - if it's still in progress, the page
+        // simply shows that, same as before.
+        if (!isTerminalCaptureStatus(data.status)) {
+          setCheckingStatus(true);
+          getCaptureStatus(meetingId)
+            .then((status) => {
+              if (cancelled || status.status !== "completed") return;
+              return getMeeting(meetingId).then((fresh) => {
+                if (!cancelled) setMeeting(fresh);
+              });
+            })
+            .catch(() => {
+              // Best-effort only - if this single check fails, the page
+              // just shows what it already has, and the background job
+              // will still catch up on its own schedule regardless.
+            })
+            .finally(() => {
+              if (!cancelled) setCheckingStatus(false);
+            });
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -171,7 +202,14 @@ export default function MeetingDetailPage() {
             </div>
           )}
         </div>
-        {meeting && <StatusBadge status={meeting.status} />}
+        {meeting && (
+          <div className="flex items-center gap-2">
+            <StatusBadge status={meeting.status} />
+            {checkingStatus && (
+              <span className="text-xs text-slate-400">Checking status&hellip;</span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
