@@ -59,6 +59,11 @@ from chat import (
     NoIndexedMeetingsError,
     answer_question,
 )
+from delete_vexa_recording import (
+    VexaDeleteError,
+    VexaMeetingStillActiveError,
+    delete_vexa_meeting,
+)
 from embeddings import (
     EmbeddingError,
     NoContentError,
@@ -596,14 +601,31 @@ def delete_meeting(
     if meeting is None or meeting.user_id != current_user.id:
         raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
 
-    # Chroma first: it has no DB-level cascade and isn't part of the
-    # Postgres transaction below, so if this fails we abort here and the
-    # meeting is left fully intact (safe to just retry the delete). Doing
-    # it in the other order risks the opposite failure: the Postgres row
-    # already gone but its embeddings still sitting in Chroma with no
-    # meeting left to retry the cleanup against - permanently orphaned
-    # vectors that could still surface in another /chat answer, exactly
-    # what per-user isolation is supposed to prevent.
+    # Vexa first: like Chroma below, it has no DB-level cascade and isn't
+    # part of the Postgres transaction, so a failure here aborts before
+    # anything is touched and the meeting is safe to just retry deleting.
+    # This is the fix for the orphaned-recording bug - previously nothing
+    # ever told Vexa a meeting was deleted, so its audio recording (which
+    # Vexa retains indefinitely by default) outlived the meeting in our
+    # own app. A 404 from Vexa means there's nothing left to clean up
+    # there, which is success, not failure (see delete_vexa_recording.py).
+    try:
+        delete_vexa_meeting(meeting.platform, meeting.native_meeting_id)
+    except VexaMeetingStillActiveError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except VexaDeleteError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Failed to remove the Vexa-side recording: {exc}"
+        )
+
+    # Chroma next: same reasoning as Vexa above - no DB cascade, not part
+    # of the Postgres transaction below, so if this fails we abort here
+    # and the meeting is left fully intact (safe to just retry the
+    # delete). Doing it in the other order risks the opposite failure: the
+    # Postgres row already gone but its embeddings still sitting in Chroma
+    # with no meeting left to retry the cleanup against - permanently
+    # orphaned vectors that could still surface in another /chat answer,
+    # exactly what per-user isolation is supposed to prevent.
     try:
         delete_meeting_embeddings(meeting_id)
     except Exception as exc:
