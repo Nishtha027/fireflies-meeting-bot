@@ -62,6 +62,7 @@ from chat import (
 from embeddings import (
     EmbeddingError,
     NoContentError,
+    delete_meeting_embeddings,
     embed_all,
     embed_meeting,
 )
@@ -80,6 +81,7 @@ from schemas import (
     ChatRequest,
     ChatResponse,
     ChatSourceOut,
+    DeleteMeetingResponse,
     EmbedAllEntry,
     EmbedAllResponse,
     EmbedResponse,
@@ -582,6 +584,39 @@ def get_meeting(
             for item in action_items
         ],
     )
+
+
+@protected.delete("/meetings/{meeting_id}", response_model=DeleteMeetingResponse)
+def delete_meeting(
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    meeting = db.get(Meeting, meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+
+    # Chroma first: it has no DB-level cascade and isn't part of the
+    # Postgres transaction below, so if this fails we abort here and the
+    # meeting is left fully intact (safe to just retry the delete). Doing
+    # it in the other order risks the opposite failure: the Postgres row
+    # already gone but its embeddings still sitting in Chroma with no
+    # meeting left to retry the cleanup against - permanently orphaned
+    # vectors that could still surface in another /chat answer, exactly
+    # what per-user isolation is supposed to prevent.
+    try:
+        delete_meeting_embeddings(meeting_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to remove embeddings: {exc}")
+
+    # transcript_segments, summaries, and action_items all have their
+    # meeting_id FK declared ON DELETE CASCADE (see app/models.py) - the
+    # database removes them the moment this row does, in the same
+    # transaction as the commit below. No need to delete each separately.
+    db.delete(meeting)
+    db.commit()
+
+    return DeleteMeetingResponse(success=True, meeting_id=meeting_id)
 
 
 @protected.post("/meetings/{meeting_id}/ingest", response_model=IngestResponse)

@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { Trash2 } from "lucide-react";
 import {
   ApiError,
+  deleteMeeting,
   getCaptureStatus,
   getMeeting,
   getMeetingAnalytics,
@@ -15,6 +17,7 @@ import { isTerminalCaptureStatus } from "@/lib/captureStatus";
 import type { MeetingAnalytics, MeetingDetail } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ErrorState } from "@/components/ErrorState";
+import { Modal } from "@/components/Modal";
 import { TranscriptView, TranscriptSkeleton } from "@/components/TranscriptView";
 import { SummaryPanelContent, SidebarSkeleton } from "@/components/SummarySidebar";
 import { TalkTimeBarChart } from "@/components/TalkTimeChart";
@@ -22,6 +25,7 @@ import { formatDateTime, formatDuration, meetingTitle } from "@/lib/format";
 
 export default function MeetingDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const meetingId = Number(params.id);
 
   const [meeting, setMeeting] = useState<MeetingDetail | null>(null);
@@ -33,6 +37,9 @@ export default function MeetingDetailPage() {
   const [summarizing, setSummarizing] = useState(false);
   const [summarizeError, setSummarizeError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const invalidId = Number.isNaN(meetingId);
 
@@ -119,6 +126,22 @@ export default function MeetingDetailPage() {
     setMeeting(null);
     setReloadToken((t) => t + 1);
   };
+
+  async function handleDelete() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteMeeting(meetingId);
+      router.push("/meetings");
+    } catch (err) {
+      if (err instanceof NetworkError || err instanceof ApiError) {
+        setDeleteError(err.message);
+      } else {
+        setDeleteError("Something went wrong deleting this meeting.");
+      }
+      setDeleting(false);
+    }
+  }
 
   async function handleGenerateSummary() {
     setSummarizing(true);
@@ -208,9 +231,60 @@ export default function MeetingDetailPage() {
             {checkingStatus && (
               <span className="text-xs text-slate-400">Checking status&hellip;</span>
             )}
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              aria-label="Delete meeting"
+              title="Delete meeting"
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
           </div>
         )}
       </div>
+
+      {showDeleteConfirm && (
+        <Modal
+          title="Delete meeting"
+          onClose={() => {
+            if (!deleting) {
+              setShowDeleteConfirm(false);
+              setDeleteError(null);
+            }
+          }}
+        >
+          <p className="text-sm text-slate-600">
+            Delete this meeting? This can&apos;t be undone &mdash; its
+            transcript, summary, and action items will be permanently
+            removed.
+          </p>
+          {deleteError && (
+            <p className="mt-3 text-sm text-red-600">{deleteError}</p>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowDeleteConfirm(false);
+                setDeleteError(null);
+              }}
+              disabled={deleting}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
         <section className="rounded-xl border border-slate-200 bg-white p-6 lg:col-span-2">

@@ -216,3 +216,8 @@ class MeResponse(BaseModel):
     id: int | None
     name: str | None
     email: str | None
+
+
+class DeleteMeetingResponse(BaseModel):
+    success: bool
+    meeting_id: int

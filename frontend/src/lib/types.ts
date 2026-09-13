@@ -164,3 +164,8 @@ export interface MeResponse {
   name: string | null;
   email: string | null;
 }
+
+export interface DeleteMeetingResponse {
+  success: boolean;
+  meeting_id: number;
+}

@@ -263,6 +263,13 @@ def embed_meeting(meeting_id: int) -> int:
     return len(chunks)
 
 
+def delete_meeting_embeddings(meeting_id: int) -> None:
+    """Remove every Chroma chunk for this meeting, if any. Idempotent - a
+    meeting that was never embedded matches nothing and this is a no-op,
+    same as Chroma's own delete(where=...) semantics."""
+    get_collection().delete(where={"meeting_id": meeting_id})
+
+
 def embedded_meeting_ids() -> set[int]:
     """Which meeting_ids already have at least one chunk in Chroma."""
     collection = get_collection()

@@ -5,6 +5,7 @@ import type {
   CaptureMeetingResponse,
   CaptureStatusResponse,
   ChatResponse,
+  DeleteMeetingResponse,
   EmbedAllResponse,
   HealthResponse,
   IngestResponse,
@@ -93,6 +94,10 @@ export function getMeetings(): Promise<MeetingListItem[]> {
 
 export function getMeeting(id: number): Promise<MeetingDetail> {
   return request<MeetingDetail>(`/meetings/${id}`);
+}
+
+export function deleteMeeting(id: number): Promise<DeleteMeetingResponse> {
+  return request<DeleteMeetingResponse>(`/meetings/${id}`, { method: "DELETE" });
 }
 
 export function ingestMeeting(id: number): Promise<IngestResponse> {
