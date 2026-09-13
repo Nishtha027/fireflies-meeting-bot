@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -113,3 +114,24 @@ class ActionItem(Base):
     )
 
     meeting: Mapped["Meeting"] = relationship(back_populates="action_items")
+
+
+class AdminAccount(Base):
+    """The one account, ever - not a users table. Its primary key is
+    hardcoded to id=1 everywhere it's created (see auth.create_account), and
+    CHECK(id = 1) means a second row is rejected by Postgres itself (a
+    primary-key collision on id=1) no matter what application code does -
+    this is what actually guarantees "only one account, ever," not just the
+    existence-check in auth.py."""
+
+    __tablename__ = "admin_account"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_admin_account_singleton"),
+        UniqueConstraint("email", name="uq_admin_account_email"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    email: Mapped[str] = mapped_column(String, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

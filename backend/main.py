@@ -17,7 +17,7 @@ import sys
 import traceback
 from datetime import date
 
-from fastapi import Depends, FastAPI, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -29,6 +29,17 @@ from analytics import (
     MeetingNotFoundError as AnalyticsMeetingNotFoundError,
     get_analytics_overview,
     get_meeting_analytics,
+)
+from auth import (
+    AccountExistsError,
+    AuthConfigError,
+    InvalidCredentialsError,
+    account_exists,
+    create_access_token,
+    create_account,
+    get_current_account,
+    require_auth,
+    verify_credentials,
 )
 from capture_meeting import (
     CaptureAPIError,
@@ -60,6 +71,7 @@ from schemas import (
     ActionItemUpdate,
     ActionItemWithMeeting,
     AnalyticsOverviewOut,
+    AuthResponse,
     CaptureMeetingRequest,
     CaptureMeetingResponse,
     CaptureStatusResponse,
@@ -71,10 +83,14 @@ from schemas import (
     EmbedResponse,
     HealthResponse,
     IngestResponse,
+    LoginRequest,
     MeetingAnalyticsOut,
     MeetingDetail,
     MeetingListItem,
+    MeResponse,
     SearchResult,
+    SetupRequest,
+    SetupStatusResponse,
     SpeakerTalkTimeOut,
     SummarizeResponse,
     SummaryOut,
@@ -126,6 +142,20 @@ async def unhandled_exception_handler(request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "Internal server error."})
 
 
+# Every business endpoint below (meetings, action-items, search, chat,
+# analytics, capture) lives on this router instead of directly on `app`,
+# so require_auth is enforced in exactly one place rather than repeated on
+# every decorator - a new endpoint only has to remember to use `protected`,
+# not to remember to add a dependency. /health and /auth/* are the only
+# public routes, and they stay directly on `app`, never on this router.
+protected = APIRouter(dependencies=[Depends(require_auth)])
+
+COOKIE_NAME = "access_token"
+COOKIE_MAX_AGE_SECONDS = 7 * 24 * 3600
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").strip().lower() == "true"
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax").strip().lower()
+
+
 @app.get("/health", response_model=HealthResponse)
 def health(db: Session = Depends(get_db)):
     try:
@@ -136,7 +166,64 @@ def health(db: Session = Depends(get_db)):
     return HealthResponse(status="ok", database="connected")
 
 
-@app.get("/meetings", response_model=list[MeetingListItem])
+def _set_session_cookie(response: Response, email: str) -> None:
+    token = create_access_token(email)
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        max_age=COOKIE_MAX_AGE_SECONDS,
+        path="/",
+    )
+
+
+@app.get("/auth/setup-status", response_model=SetupStatusResponse)
+def setup_status(db: Session = Depends(get_db)):
+    return SetupStatusResponse(account_exists=account_exists(db))
+
+
+@app.post("/auth/setup", response_model=AuthResponse)
+def setup(payload: SetupRequest, response: Response, db: Session = Depends(get_db)):
+    try:
+        account = create_account(db, payload.name, payload.email, payload.password)
+    except AccountExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    _set_session_cookie(response, account.email)
+    return AuthResponse(success=True)
+
+
+@app.post("/auth/login", response_model=AuthResponse)
+def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
+    try:
+        account = verify_credentials(db, payload.email, payload.password)
+    except InvalidCredentialsError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    except AuthConfigError as exc:
+        raise HTTPException(status_code=500, detail=f"Login is misconfigured: {exc}")
+
+    _set_session_cookie(response, account.email)
+    return AuthResponse(success=True)
+
+
+@app.post("/auth/logout", response_model=AuthResponse)
+def logout(response: Response):
+    response.delete_cookie(key=COOKIE_NAME, path="/")
+    return AuthResponse(success=True)
+
+
+@app.get("/auth/me", response_model=MeResponse)
+def me(account=Depends(get_current_account)):
+    return MeResponse(
+        authenticated=account is not None,
+        name=account.name if account else None,
+        email=account.email if account else None,
+    )
+
+
+@protected.get("/meetings", response_model=list[MeetingListItem])
 def list_meetings(db: Session = Depends(get_db)):
     meetings = db.query(Meeting).order_by(Meeting.start_time.desc().nullslast()).all()
 
@@ -158,7 +245,7 @@ def list_meetings(db: Session = Depends(get_db)):
     return items
 
 
-@app.get("/action-items", response_model=list[ActionItemWithMeeting])
+@protected.get("/action-items", response_model=list[ActionItemWithMeeting])
 def list_action_items(db: Session = Depends(get_db)):
     # One join, not N+1: the Tasks page needs every action item across every
     # meeting plus enough meeting context to link back, in a single request.
@@ -184,7 +271,7 @@ def list_action_items(db: Session = Depends(get_db)):
     ]
 
 
-@app.post("/meetings/start", response_model=CaptureMeetingResponse)
+@protected.post("/meetings/start", response_model=CaptureMeetingResponse)
 def start_meeting_capture(payload: CaptureMeetingRequest):
     meeting_url = payload.meeting_url.strip()
     if "meet.google.com" not in meeting_url.lower():
@@ -217,7 +304,7 @@ def start_meeting_capture(payload: CaptureMeetingRequest):
     )
 
 
-@app.get("/meetings/{meeting_id}/capture-status", response_model=CaptureStatusResponse)
+@protected.get("/meetings/{meeting_id}/capture-status", response_model=CaptureStatusResponse)
 def get_meeting_capture_status(meeting_id: int = Path(..., gt=0)):
     try:
         result = get_capture_status(meeting_id)
@@ -237,7 +324,7 @@ def get_meeting_capture_status(meeting_id: int = Path(..., gt=0)):
     )
 
 
-@app.patch("/action-items/{action_item_id}", response_model=ActionItemWithMeeting)
+@protected.patch("/action-items/{action_item_id}", response_model=ActionItemWithMeeting)
 def update_action_item(
     payload: ActionItemUpdate,
     action_item_id: int = Path(..., gt=0),
@@ -370,7 +457,7 @@ DATE_ONLY_SQL = text("""
 """)
 
 
-@app.get("/search", response_model=list[SearchResult])
+@protected.get("/search", response_model=list[SearchResult])
 def search_meetings(
     q: str = Query(default=""),
     from_date: date | None = Query(default=None),
@@ -412,7 +499,7 @@ def search_meetings(
     ]
 
 
-@app.get("/meetings/{meeting_id}", response_model=MeetingDetail)
+@protected.get("/meetings/{meeting_id}", response_model=MeetingDetail)
 def get_meeting(meeting_id: int = Path(..., gt=0), db: Session = Depends(get_db)):
     meeting = db.get(Meeting, meeting_id)
     if meeting is None:
@@ -460,7 +547,7 @@ def get_meeting(meeting_id: int = Path(..., gt=0), db: Session = Depends(get_db)
     )
 
 
-@app.post("/meetings/{meeting_id}/ingest", response_model=IngestResponse)
+@protected.post("/meetings/{meeting_id}/ingest", response_model=IngestResponse)
 def trigger_ingest(meeting_id: int = Path(..., gt=0), db: Session = Depends(get_db)):
     # ingest() upserts by (platform, native_meeting_id), not our internal id,
     # so an existing row is looked up first to know which Vexa meeting to
@@ -490,7 +577,7 @@ def trigger_ingest(meeting_id: int = Path(..., gt=0), db: Session = Depends(get_
     )
 
 
-@app.post("/meetings/{meeting_id}/summarize", response_model=SummarizeResponse)
+@protected.post("/meetings/{meeting_id}/summarize", response_model=SummarizeResponse)
 def trigger_summarize(meeting_id: int = Path(..., gt=0)):
     try:
         result = summarize(meeting_id)
@@ -520,7 +607,7 @@ def trigger_summarize(meeting_id: int = Path(..., gt=0)):
     )
 
 
-@app.post("/meetings/{meeting_id}/embed", response_model=EmbedResponse)
+@protected.post("/meetings/{meeting_id}/embed", response_model=EmbedResponse)
 def trigger_embed(meeting_id: int = Path(..., gt=0)):
     try:
         count = embed_meeting(meeting_id)
@@ -534,7 +621,7 @@ def trigger_embed(meeting_id: int = Path(..., gt=0)):
     return EmbedResponse(success=True, meeting_id=meeting_id, chunks_written=count)
 
 
-@app.post("/embed-all", response_model=EmbedAllResponse)
+@protected.post("/embed-all", response_model=EmbedAllResponse)
 def trigger_embed_all():
     summary = embed_all()
     return EmbedAllResponse(
@@ -548,7 +635,7 @@ def trigger_embed_all():
     )
 
 
-@app.post("/chat", response_model=ChatResponse)
+@protected.post("/chat", response_model=ChatResponse)
 def chat_endpoint(request: ChatRequest):
     try:
         result = answer_question(request.question)
@@ -581,7 +668,7 @@ def chat_endpoint(request: ChatRequest):
     )
 
 
-@app.get("/meetings/{meeting_id}/analytics", response_model=MeetingAnalyticsOut)
+@protected.get("/meetings/{meeting_id}/analytics", response_model=MeetingAnalyticsOut)
 def get_meeting_analytics_endpoint(meeting_id: int = Path(..., gt=0)):
     try:
         result = get_meeting_analytics(meeting_id)
@@ -602,7 +689,7 @@ def get_meeting_analytics_endpoint(meeting_id: int = Path(..., gt=0)):
     )
 
 
-@app.get("/analytics/overview", response_model=AnalyticsOverviewOut)
+@protected.get("/analytics/overview", response_model=AnalyticsOverviewOut)
 def get_analytics_overview_endpoint():
     result = get_analytics_overview()
     return AnalyticsOverviewOut(
@@ -614,3 +701,6 @@ def get_analytics_overview_endpoint():
             else None
         ),
     )
+
+
+app.include_router(protected)

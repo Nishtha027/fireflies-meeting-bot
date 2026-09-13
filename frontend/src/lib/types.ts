@@ -153,3 +153,17 @@ export interface CaptureStatusResponse {
   summarized: boolean;
   summarize_error: string | null;
 }
+
+export interface SetupStatusResponse {
+  account_exists: boolean;
+}
+
+export interface AuthResponse {
+  success: boolean;
+}
+
+export interface MeResponse {
+  authenticated: boolean;
+  name: string | null;
+  email: string | null;
+}

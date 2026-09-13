@@ -1,6 +1,7 @@
 import type {
   ActionItemWithMeeting,
   AnalyticsOverview,
+  AuthResponse,
   CaptureMeetingResponse,
   CaptureStatusResponse,
   ChatResponse,
@@ -10,9 +11,16 @@ import type {
   MeetingAnalytics,
   MeetingDetail,
   MeetingListItem,
+  MeResponse,
   SearchResult,
+  SetupStatusResponse,
   SummarizeResponse,
 } from "./types";
+
+/** Paths the app renders without a session - never bounce these back to
+ * themselves on a 401 (avoids a redirect loop, and /auth/me is expected to
+ * be called while logged out). */
+const PUBLIC_PATHS = ["/login", "/setup"];
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -38,9 +46,28 @@ export class NetworkError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, init);
+    response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      credentials: "include",
+    });
   } catch {
     throw new NetworkError();
+  }
+
+  // A 401 from any call means the session is missing/expired - send the
+  // whole app back to /login rather than letting the current page render
+  // broken/partial data. /auth/me never 401s (it answers 200 with
+  // authenticated: false), so this never fires for the login-state check
+  // itself or creates a redirect loop.
+  if (
+    response.status === 401 &&
+    typeof window !== "undefined" &&
+    !PUBLIC_PATHS.includes(window.location.pathname)
+  ) {
+    // This is a plain module, not a component - no useRouter() available,
+    // and a hard navigation is fine here since the session is already gone.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.href = "/login";
   }
 
   if (!response.ok) {
@@ -140,4 +167,36 @@ export function captureMeeting(
 
 export function getCaptureStatus(id: number): Promise<CaptureStatusResponse> {
   return request<CaptureStatusResponse>(`/meetings/${id}/capture-status`);
+}
+
+export function getSetupStatus(): Promise<SetupStatusResponse> {
+  return request<SetupStatusResponse>("/auth/setup-status");
+}
+
+export function setupAccount(
+  name: string,
+  email: string,
+  password: string,
+): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/setup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, email, password }),
+  });
+}
+
+export function login(email: string, password: string): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function logout(): Promise<AuthResponse> {
+  return request<AuthResponse>("/auth/logout", { method: "POST" });
+}
+
+export function getAuthStatus(): Promise<MeResponse> {
+  return request<MeResponse>("/auth/me");
 }

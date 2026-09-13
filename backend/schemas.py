@@ -4,7 +4,7 @@ of the DB schema."""
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 
 
 class HealthResponse(BaseModel):
@@ -194,3 +194,28 @@ class CaptureStatusResponse(BaseModel):
     segments_saved: int
     summarized: bool
     summarize_error: str | None
+
+
+class SetupStatusResponse(BaseModel):
+    account_exists: bool
+
+
+class SetupRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=200)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=200)
+
+
+class AuthResponse(BaseModel):
+    success: bool
+
+
+class MeResponse(BaseModel):
+    authenticated: bool
+    name: str | None
+    email: str | None
