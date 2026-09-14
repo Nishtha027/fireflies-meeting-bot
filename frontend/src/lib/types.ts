@@ -169,3 +169,18 @@ export interface DeleteMeetingResponse {
   success: boolean;
   meeting_id: number;
 }
+
+export interface AccountUpdateResponse {
+  success: boolean;
+  id: number;
+  name: string;
+  email: string;
+}
+
+export interface ChangePasswordResponse {
+  success: boolean;
+}
+
+export interface DeleteAccountResponse {
+  success: boolean;
+}

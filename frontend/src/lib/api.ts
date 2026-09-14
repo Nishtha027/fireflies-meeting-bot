@@ -1,10 +1,13 @@
 import type {
+  AccountUpdateResponse,
   ActionItemWithMeeting,
   AnalyticsOverview,
   AuthResponse,
   CaptureMeetingResponse,
   CaptureStatusResponse,
+  ChangePasswordResponse,
   ChatResponse,
+  DeleteAccountResponse,
   DeleteMeetingResponse,
   EmbedAllResponse,
   HealthResponse,
@@ -205,4 +208,37 @@ export function logout(): Promise<AuthResponse> {
 
 export function getAuthStatus(): Promise<MeResponse> {
   return request<MeResponse>("/auth/me");
+}
+
+export function updateAccount(
+  name: string,
+  email: string,
+): Promise<AccountUpdateResponse> {
+  return request<AccountUpdateResponse>("/settings/account", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, email }),
+  });
+}
+
+export function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<ChangePasswordResponse> {
+  return request<ChangePasswordResponse>("/settings/change-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+}
+
+export function deleteAccount(password: string): Promise<DeleteAccountResponse> {
+  return request<DeleteAccountResponse>("/settings/delete-account", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
 }

@@ -106,6 +106,49 @@ def verify_credentials(db: Session, email: str, password: str) -> User:
     return user
 
 
+def verify_password(user: User, password: str) -> bool:
+    """Plain password check against an already-resolved user - used
+    wherever we need to re-confirm identity for an already-authenticated
+    session (changing the password, deleting the account), as opposed to
+    verify_credentials() above which is the email+password login lookup."""
+    return bcrypt.checkpw(password.encode("utf-8"), user.password_hash.encode("utf-8"))
+
+
+def update_account(db: Session, user: User, name: str, email: str) -> User:
+    """PATCH /settings/account: update the profile fields that don't need
+    re-authentication (unlike change_password()/delete below). Raises
+    EmailAlreadyRegisteredError if another account already owns the new
+    email - the up-front lookup excludes the user's own row so re-saving
+    their current email is never mistaken for a collision, and the
+    try/except around commit() is the same race guard register_user() uses
+    (two accounts claiming the same email at once)."""
+    existing = db.query(User).filter(User.email == email, User.id != user.id).one_or_none()
+    if existing is not None:
+        raise EmailAlreadyRegisteredError("An account with this email already exists.")
+
+    user.name = name
+    user.email = email
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise EmailAlreadyRegisteredError("An account with this email already exists.")
+    db.refresh(user)
+    return user
+
+
+def change_password(db: Session, user: User, current_password: str, new_password: str) -> None:
+    """Raises InvalidCredentialsError if current_password doesn't match the
+    account's actual password. Deliberately required even though the
+    caller already has a valid session - an active-but-hijacked or
+    left-open session must not be enough on its own to lock the real
+    owner out by silently swapping the password."""
+    if not verify_password(user, current_password):
+        raise InvalidCredentialsError("Current password is incorrect.")
+    user.password_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    db.commit()
+
+
 def create_access_token(user_id: int) -> str:
     expires_at = datetime.now(timezone.utc) + timedelta(days=TOKEN_EXPIRE_DAYS)
     payload = {"sub": str(user_id), "exp": expires_at}

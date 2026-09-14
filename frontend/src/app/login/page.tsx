@@ -2,11 +2,13 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, login, NetworkError } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const justDeleted = searchParams.get("deleted") === "1";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +50,12 @@ export default function LoginPage() {
         <p className="mt-1 text-sm text-slate-500">
           Log in to view your meetings.
         </p>
+
+        {justDeleted && (
+          <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            Your account has been deleted.
+          </p>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
           <div>

@@ -8,10 +8,12 @@ import {
   ListChecks,
   LogOut,
   MessageCircle,
+  Settings,
   Video,
 } from "lucide-react";
-import { useEffect, useState, type ComponentType } from "react";
-import { getAuthStatus, logout } from "@/lib/api";
+import { type ComponentType } from "react";
+import { logout } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 
 interface NavItem {
   href: string;
@@ -25,26 +27,14 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/tasks", label: "Tasks", icon: ListChecks },
   { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const [accountName, setAccountName] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    getAuthStatus()
-      .then((data) => {
-        if (!cancelled) setAccountName(data.name);
-      })
-      .catch(() => {
-        if (!cancelled) setAccountName(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { user } = useAuth();
+  const accountName = user?.name ?? null;
 
   async function handleLogout() {
     try {

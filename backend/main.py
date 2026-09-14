@@ -36,11 +36,14 @@ from auth import (
     AuthConfigError,
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
+    change_password,
     create_access_token,
     get_current_user,
     register_user,
     require_auth,
+    update_account,
     verify_credentials,
+    verify_password,
 )
 from capture_meeting import (
     CaptureAPIError,
@@ -75,6 +78,8 @@ from embeddings import MeetingNotFoundError as EmbedMeetingNotFoundError
 from ingest_transcript import IngestError, VexaAPIError, VexaNotFoundError, ingest
 from poller import start_scheduler, stop_scheduler
 from schemas import (
+    AccountUpdateRequest,
+    AccountUpdateResponse,
     ActionItemOut,
     ActionItemUpdate,
     ActionItemWithMeeting,
@@ -83,9 +88,13 @@ from schemas import (
     CaptureMeetingRequest,
     CaptureMeetingResponse,
     CaptureStatusResponse,
+    ChangePasswordRequest,
+    ChangePasswordResponse,
     ChatRequest,
     ChatResponse,
     ChatSourceOut,
+    DeleteAccountRequest,
+    DeleteAccountResponse,
     DeleteMeetingResponse,
     EmbedAllEntry,
     EmbedAllResponse,
@@ -641,16 +650,25 @@ def get_meeting(
     )
 
 
-@protected.delete("/meetings/{meeting_id}", response_model=DeleteMeetingResponse)
-def delete_meeting(
-    meeting_id: int = Path(..., gt=0),
-    current_user: User = Depends(require_auth),
-    db: Session = Depends(get_db),
-):
-    meeting = db.get(Meeting, meeting_id)
-    if meeting is None or meeting.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+class _ChromaCleanupError(Exception):
+    """Wraps whatever delete_meeting_embeddings() raised, so callers of
+    _delete_meeting_fully() can tell a Chroma failure apart from an
+    unrelated error (e.g. the final Postgres commit) without the two being
+    mislabeled as each other."""
 
+
+def _delete_meeting_fully(db: Session, meeting: Meeting) -> None:
+    """The actual cross-system cleanup for one meeting - Vexa's recording,
+    then Chroma's embeddings, then the Postgres row itself. Shared by the
+    single-meeting DELETE endpoint below and by account deletion (Part B),
+    which calls this once per meeting the account owns rather than
+    reimplementing any of it.
+
+    Raises the same VexaMeetingStillActiveError / VexaDeleteError / a plain
+    Exception (from Chroma) that delete_meeting() already handled inline -
+    left un-mapped to HTTP here so each caller can decide its own response
+    (a single meeting delete vs. one step of a whole-account delete).
+    """
     # Vexa first: like Chroma below, it has no DB-level cascade and isn't
     # part of the Postgres transaction, so a failure here aborts before
     # anything is touched and the meeting is safe to just retry deleting.
@@ -659,14 +677,7 @@ def delete_meeting(
     # Vexa retains indefinitely by default) outlived the meeting in our
     # own app. A 404 from Vexa means there's nothing left to clean up
     # there, which is success, not failure (see delete_vexa_recording.py).
-    try:
-        delete_vexa_meeting(meeting.platform, meeting.native_meeting_id)
-    except VexaMeetingStillActiveError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except VexaDeleteError as exc:
-        raise HTTPException(
-            status_code=502, detail=f"Failed to remove the Vexa-side recording: {exc}"
-        )
+    delete_vexa_meeting(meeting.platform, meeting.native_meeting_id)
 
     # Chroma next: same reasoning as Vexa above - no DB cascade, not part
     # of the Postgres transaction below, so if this fails we abort here
@@ -677,9 +688,9 @@ def delete_meeting(
     # orphaned vectors that could still surface in another /chat answer,
     # exactly what per-user isolation is supposed to prevent.
     try:
-        delete_meeting_embeddings(meeting_id)
+        delete_meeting_embeddings(meeting.id)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to remove embeddings: {exc}")
+        raise _ChromaCleanupError(str(exc)) from exc
 
     # transcript_segments, summaries, and action_items all have their
     # meeting_id FK declared ON DELETE CASCADE (see app/models.py) - the
@@ -688,7 +699,106 @@ def delete_meeting(
     db.delete(meeting)
     db.commit()
 
+
+@protected.delete("/meetings/{meeting_id}", response_model=DeleteMeetingResponse)
+def delete_meeting(
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    meeting = db.get(Meeting, meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+
+    try:
+        _delete_meeting_fully(db, meeting)
+    except VexaMeetingStillActiveError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except VexaDeleteError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Failed to remove the Vexa-side recording: {exc}"
+        )
+    except _ChromaCleanupError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to remove embeddings: {exc}")
+
     return DeleteMeetingResponse(success=True, meeting_id=meeting_id)
+
+
+@protected.patch("/settings/account", response_model=AccountUpdateResponse)
+def update_account_settings(
+    payload: AccountUpdateRequest,
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """Name/email only - no password required, unlike change-password and
+    delete-account below, which both deliberately re-verify identity."""
+    try:
+        user = update_account(db, current_user, payload.name, payload.email)
+    except EmailAlreadyRegisteredError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    return AccountUpdateResponse(success=True, id=user.id, name=user.name, email=user.email)
+
+
+@protected.post("/settings/change-password", response_model=ChangePasswordResponse)
+def change_password_settings(
+    payload: ChangePasswordRequest,
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    try:
+        change_password(db, current_user, payload.current_password, payload.new_password)
+    except InvalidCredentialsError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+
+    return ChangePasswordResponse(success=True)
+
+
+@protected.post("/settings/delete-account", response_model=DeleteAccountResponse)
+def delete_account(
+    payload: DeleteAccountRequest,
+    response: Response,
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """Irreversible: re-verifies the current password (not just the active
+    session - same reasoning as change-password) before touching anything,
+    then cleans up every meeting this account owns via the same
+    _delete_meeting_fully() the single-meeting DELETE endpoint uses (Vexa
+    recording, Chroma embeddings, Postgres row - nothing reimplemented
+    here), and only removes the user row itself once all of them are gone.
+    """
+    if not verify_password(current_user, payload.password):
+        raise HTTPException(status_code=401, detail="Current password is incorrect.")
+
+    meetings = db.query(Meeting).filter_by(user_id=current_user.id).all()
+    for meeting in meetings:
+        try:
+            _delete_meeting_fully(db, meeting)
+        except VexaMeetingStillActiveError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Meeting id={meeting.id} is still being recorded - stop it "
+                    f"before deleting your account. ({exc})"
+                ),
+            )
+        except VexaDeleteError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to remove the Vexa-side recording for meeting id={meeting.id}: {exc}",
+            )
+        except _ChromaCleanupError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to remove embeddings for meeting id={meeting.id}: {exc}",
+            )
+
+    db.delete(current_user)
+    db.commit()
+
+    response.delete_cookie(key=COOKIE_NAME, path="/")
+    return DeleteAccountResponse(success=True)
 
 
 @protected.post("/meetings/{meeting_id}/ingest", response_model=IngestResponse)

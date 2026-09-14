@@ -221,3 +221,32 @@ class MeResponse(BaseModel):
 class DeleteMeetingResponse(BaseModel):
     success: bool
     meeting_id: int
+
+
+class AccountUpdateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    email: EmailStr
+
+
+class AccountUpdateResponse(BaseModel):
+    success: bool
+    id: int
+    name: str
+    email: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)
+
+
+class ChangePasswordResponse(BaseModel):
+    success: bool
+
+
+class DeleteAccountRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=200)
+
+
+class DeleteAccountResponse(BaseModel):
+    success: bool
