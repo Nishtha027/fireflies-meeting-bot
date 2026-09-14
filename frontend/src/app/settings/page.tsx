@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useTheme } from "next-themes";
 import { Laptop, Moon, Sun } from "lucide-react";
 import {
@@ -12,6 +12,7 @@ import {
   updateAccount,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import { useMounted } from "@/lib/useMounted";
 import { Modal } from "@/components/Modal";
 
 function SettingsSkeleton() {
@@ -33,12 +34,18 @@ function AccountSection() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      setName(user.name ?? "");
-      setEmail(user.email ?? "");
-    }
-  }, [user]);
+  // Prefill from `user` once it loads (it starts null - AuthProvider fetches
+  // it async) - adjusted during render rather than in an effect, per React's
+  // own guidance for "state derived from a prop": guarding on user.id, not
+  // an effect dependency, so this fires exactly once per loaded account and
+  // never clobbers an in-progress edit or the just-saved values after a
+  // successful update (same id, already-correct local state).
+  const [syncedUserId, setSyncedUserId] = useState<number | null>(null);
+  if (user && user.id !== syncedUserId) {
+    setSyncedUserId(user.id);
+    setName(user.name ?? "");
+    setEmail(user.email ?? "");
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -304,8 +311,8 @@ function DangerZoneSection() {
     <section className="rounded-xl border-2 border-red-200 bg-red-50 p-6 dark:border-red-900/60 dark:bg-red-950/30">
       <h2 className="text-sm font-semibold text-red-900 dark:text-red-200">Danger Zone</h2>
       <p className="mt-1 text-sm text-red-700 dark:text-red-300/90">
-        Permanently delete your account, every meeting you've captured, its
-        transcripts and summaries, and its recorded audio. This cannot be
+        Permanently delete your account, every meeting you&apos;ve captured,
+        its transcripts and summaries, and its recorded audio. This cannot be
         undone.
       </p>
       <div className="mt-4">
@@ -388,8 +395,7 @@ function AppearanceSection() {
   // (it reads localStorage client-side) - rendering the toggle before then
   // would either guess wrong or mismatch what the no-flash script already
   // applied, so this shows a neutral skeleton for one tick instead.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
 
   return (
     <section className="rounded-xl border border-border bg-card p-6">

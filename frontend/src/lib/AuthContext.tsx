@@ -44,9 +44,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Inlined rather than calling refresh() from here (matching AppShell's own
+  // getAuthStatus().then(...) effect): setUserState then only ever runs
+  // inside a .then() callback, not synchronously in the effect body.
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    let cancelled = false;
+    getAuthStatus()
+      .then((data) => {
+        if (!cancelled) setUserState(data);
+      })
+      .catch(() => {
+        if (!cancelled) setUserState(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const setUser = useCallback((data: MeResponse) => {
     setUserState(data);

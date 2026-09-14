@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import {
   Bar,
@@ -17,16 +16,16 @@ import type { NameType, ValueType } from "recharts/types/component/DefaultToolti
 import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { SpeakerTalkTime } from "@/lib/types";
 import { speakerHexColor } from "@/lib/speakerColor";
+import { useMounted } from "@/lib/useMounted";
 
 /** recharts renders SVG attributes, not Tailwind classes - `dark:` can't
  * reach them, so the couple of colors that touch the chart itself (axis
  * tick text, the hover cursor band) are resolved from the actual active
- * theme instead. Mirrors the mounted-guard the Settings page's theme
- * toggle uses, to avoid a server/client mismatch on first paint. */
+ * theme instead, only once mounted client-side (next-themes can't know the
+ * real theme during SSR/first paint). */
 function useIsDarkMode(): boolean {
   const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
   return mounted && resolvedTheme === "dark";
 }
 
