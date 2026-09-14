@@ -38,12 +38,15 @@ from capture_meeting import CaptureError, get_capture_status
 
 logger = logging.getLogger("meetscribe.poller")
 
-# 45s: frequent enough that ending a call resolves within well under a
-# minute with zero user action, without hammering Vexa's API with a
-# request per tracked in-progress meeting many times a minute. Vexa is
-# only ever checked for meetings that are actually still in progress, so
-# this cost scales with concurrent captures, not with total meeting count.
-POLL_INTERVAL_SECONDS = 45
+# 25s (tightened from 45s): still frequent enough that ending a call
+# resolves fast with zero user action, without hammering Vexa's API - each
+# tick is one GET /transcripts/{platform}/{native_meeting_id} per tracked
+# in-progress meeting (Vexa is only ever checked for meetings that are
+# actually still in progress, so this cost scales with concurrent captures,
+# not with total meeting count), nowhere near Vexa's gateway rate limits
+# (GATEWAY_RATE_LIMIT_RPS defaults to 40/s) for the realistic handful of
+# concurrent captures a self-hosted single-user deployment runs.
+POLL_INTERVAL_SECONDS = 25
 
 # Matches the frontend's TERMINAL_STATUSES (CaptureMeetingModal.tsx) -
 # once a meeting reaches one of these, this job stops checking it.

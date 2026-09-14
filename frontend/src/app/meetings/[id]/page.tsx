@@ -11,6 +11,7 @@ import {
   getMeeting,
   getMeetingAnalytics,
   NetworkError,
+  stopRecording,
   summarizeMeeting,
 } from "@/lib/api";
 import { isTerminalCaptureStatus } from "@/lib/captureStatus";
@@ -22,6 +23,20 @@ import { TranscriptView, TranscriptSkeleton } from "@/components/TranscriptView"
 import { SummaryPanelContent, SidebarSkeleton } from "@/components/SummarySidebar";
 import { TalkTimeBarChart } from "@/components/TalkTimeChart";
 import { formatDateTime, formatDuration, meetingTitle } from "@/lib/format";
+
+// After the initial POST /stop-recording call, Vexa's bot typically needs a
+// few seconds to actually finalize the meeting (it answers "stopping"
+// immediately, not "completed") - so this briefly polls capture-status the
+// same way CaptureMeetingModal already does, rather than assuming one call
+// is enough. If it somehow isn't done within this window, the background
+// poller (backend/poller.py, unchanged) still picks it up on its own
+// schedule - this is just the fast path, not the only path.
+const STOP_POLL_INTERVAL_MS = 2000;
+const MAX_STOP_POLL_ATTEMPTS = 15;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export default function MeetingDetailPage() {
   const params = useParams<{ id: string }>();
@@ -40,6 +55,8 @@ export default function MeetingDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [stoppingRecording, setStoppingRecording] = useState(false);
+  const [stopRecordingError, setStopRecordingError] = useState<string | null>(null);
 
   const invalidId = Number.isNaN(meetingId);
 
@@ -143,6 +160,33 @@ export default function MeetingDetailPage() {
     }
   }
 
+  async function handleStopRecording() {
+    setStoppingRecording(true);
+    setStopRecordingError(null);
+    try {
+      let result = await stopRecording(meetingId);
+      let attempts = 0;
+      while (
+        !isTerminalCaptureStatus(result.status) &&
+        attempts < MAX_STOP_POLL_ATTEMPTS
+      ) {
+        await sleep(STOP_POLL_INTERVAL_MS);
+        result = await getCaptureStatus(meetingId);
+        attempts += 1;
+      }
+      const refreshed = await getMeeting(meetingId);
+      setMeeting(refreshed);
+    } catch (err) {
+      if (err instanceof NetworkError || err instanceof ApiError) {
+        setStopRecordingError(err.message);
+      } else {
+        setStopRecordingError("Something went wrong ending the recording.");
+      }
+    } finally {
+      setStoppingRecording(false);
+    }
+  }
+
   async function handleGenerateSummary() {
     setSummarizing(true);
     setSummarizeError(null);
@@ -231,6 +275,16 @@ export default function MeetingDetailPage() {
             {checkingStatus && (
               <span className="text-xs text-slate-400">Checking status&hellip;</span>
             )}
+            {meeting.status === "active" && (
+              <button
+                type="button"
+                onClick={handleStopRecording}
+                disabled={stoppingRecording}
+                className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {stoppingRecording ? "Ending recording…" : "End Recording"}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowDeleteConfirm(true)}
@@ -243,6 +297,10 @@ export default function MeetingDetailPage() {
           </div>
         )}
       </div>
+
+      {stopRecordingError && (
+        <p className="mt-2 text-sm text-red-600">{stopRecordingError}</p>
+      )}
 
       {showDeleteConfirm && (
         <Modal

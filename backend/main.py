@@ -105,6 +105,7 @@ from schemas import (
     TopSpeakerOut,
     TranscriptSegmentOut,
 )
+from stop_vexa_bot import VexaStopBotAPIError, stop_vexa_bot
 from summarize_meeting import (
     GroqAPIError,
     GroqAuthError,
@@ -338,6 +339,55 @@ def get_meeting_capture_status(
     meeting = db.get(Meeting, meeting_id)
     if meeting is None or meeting.user_id != current_user.id:
         raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+
+    try:
+        result = get_capture_status(meeting_id)
+    except CaptureMeetingNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except CaptureAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except CaptureError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return CaptureStatusResponse(
+        meeting_id=result.meeting_id,
+        status=result.status,
+        segments_saved=result.segments_saved,
+        summarized=result.summarized,
+        summarize_error=result.summarize_error,
+    )
+
+
+@protected.post("/meetings/{meeting_id}/stop-recording", response_model=CaptureStatusResponse)
+def stop_meeting_recording(
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """The "End Recording" button: end the bot's participation right now
+    rather than waiting on Vexa's own silence-based detection or the next
+    background poll cycle (backend/poller.py, unchanged - this is an
+    additional, faster, explicit path alongside it, not a replacement).
+
+    Stops the bot first, then immediately reuses get_capture_status() - the
+    same ingest-then-summarize-on-completion logic the poller and the
+    frontend's status polling already rely on - so the transcript and
+    summary are ready by the time this call returns instead of waiting for
+    the next poll.
+    """
+    meeting = db.get(Meeting, meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+
+    # A 404 here means Vexa already has no active bot for this meeting -
+    # e.g. it independently completed between page load and this click -
+    # which is exactly the outcome this call wants, so stop_vexa_bot()
+    # already treats that as success. Proceed to the completion logic
+    # below either way, rather than requiring the bot to still be active.
+    try:
+        stop_vexa_bot(meeting.platform, meeting.native_meeting_id)
+    except VexaStopBotAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
     try:
         result = get_capture_status(meeting_id)

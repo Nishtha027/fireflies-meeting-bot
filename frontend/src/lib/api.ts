@@ -173,6 +173,12 @@ export function getCaptureStatus(id: number): Promise<CaptureStatusResponse> {
   return request<CaptureStatusResponse>(`/meetings/${id}/capture-status`);
 }
 
+export function stopRecording(id: number): Promise<CaptureStatusResponse> {
+  return request<CaptureStatusResponse>(`/meetings/${id}/stop-recording`, {
+    method: "POST",
+  });
+}
+
 export function register(
   name: string,
   email: string,
