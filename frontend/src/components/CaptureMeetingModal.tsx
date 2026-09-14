@@ -118,7 +118,7 @@ export function CaptureMeetingModal({ onClose }: { onClose: () => void }) {
         <form onSubmit={handleSubmit}>
           <label
             htmlFor="meeting-url"
-            className="text-sm font-medium text-slate-700"
+            className="text-sm font-medium text-foreground"
           >
             Google Meet link
           </label>
@@ -129,14 +129,14 @@ export function CaptureMeetingModal({ onClose }: { onClose: () => void }) {
             value={meetingUrl}
             onChange={(e) => setMeetingUrl(e.target.value)}
             placeholder="https://meet.google.com/abc-defg-hij"
-            className="mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:outline-none"
+            className="mt-1.5 w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-indigo-300 focus:bg-card focus:outline-none"
           />
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-muted-foreground">
             The bot will knock and wait in the meeting&apos;s lobby &mdash;
             admit it like any other guest once you see it join.
           </p>
           {formError && (
-            <p className="mt-2 text-sm text-red-600">{formError}</p>
+            <p className="mt-2 text-sm text-red-600 dark:text-red-400">{formError}</p>
           )}
           <button
             type="submit"
@@ -155,10 +155,10 @@ export function CaptureMeetingModal({ onClose }: { onClose: () => void }) {
           ) : capture.status === "failed" ? (
             <XCircle className="mx-auto h-10 w-10 text-red-500" />
           ) : (
-            <div className="mx-auto h-10 w-10 animate-pulse rounded-full bg-indigo-100" />
+            <div className="mx-auto h-10 w-10 animate-pulse rounded-full bg-indigo-100 dark:bg-indigo-500/20" />
           )}
 
-          <p className="mt-3 text-sm font-medium text-slate-900">
+          <p className="mt-3 text-sm font-medium text-foreground">
             {capture.status === "completed"
               ? capture.summarized
                 ? "Meeting processed — transcript and summary are ready."
@@ -171,24 +171,24 @@ export function CaptureMeetingModal({ onClose }: { onClose: () => void }) {
           </p>
 
           {capture.summarizeError && (
-            <p className="mt-2 text-xs text-red-600">
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">
               {capture.summarizeError} You can retry from the meeting page.
             </p>
           )}
 
           {capture.segmentsSaved > 0 && capture.status !== "completed" && (
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-muted-foreground">
               {capture.segmentsSaved} transcript segment
               {capture.segmentsSaved === 1 ? "" : "s"} captured so far
             </p>
           )}
 
           {pollError && (
-            <p className="mt-2 text-xs text-red-600">{pollError}</p>
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">{pollError}</p>
           )}
 
           {!TERMINAL_STATUSES.has(capture.status) && (
-            <p className="mt-3 text-xs text-slate-400">
+            <p className="mt-3 text-xs text-muted-foreground">
               Safe to close &mdash; the meeting will finish processing
               automatically in the background, even if you close this or
               leave the page. It&apos;ll be waiting on the meeting page when
@@ -208,7 +208,7 @@ export function CaptureMeetingModal({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
             >
               {TERMINAL_STATUSES.has(capture.status) ? "Close" : "Cancel"}
             </button>

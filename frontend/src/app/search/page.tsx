@@ -38,12 +38,12 @@ function describeFilters(q: string, fromDate: string, toDate: string): string {
 
 function NeutralPlaceholder() {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center">
-      <SearchIcon className="h-6 w-6 text-slate-400" />
-      <p className="text-base font-semibold text-slate-700">
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-muted px-6 py-16 text-center">
+      <SearchIcon className="h-6 w-6 text-muted-foreground" />
+      <p className="text-base font-semibold text-foreground">
         Search by keyword, filter by date, or both
       </p>
-      <p className="max-w-sm text-sm text-slate-500">
+      <p className="max-w-sm text-sm text-muted-foreground">
         Type something above, pick a date range below, or combine both - no
         keyword required.
       </p>
@@ -53,11 +53,11 @@ function NeutralPlaceholder() {
 
 function NoResults({ description }: { description: string }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center">
-      <p className="text-base font-semibold text-slate-700">
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-muted px-6 py-16 text-center">
+      <p className="text-base font-semibold text-foreground">
         No meetings match {description}
       </p>
-      <p className="max-w-sm text-sm text-slate-500">
+      <p className="max-w-sm text-sm text-muted-foreground">
         Try a different word, phrase, or date range.
       </p>
     </div>
@@ -144,10 +144,10 @@ function SearchPageContent() {
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Search
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           {hasAnyFilter
             ? `Results for ${description}`
             : "Search across every meeting's transcript and summary, or browse by date."}
@@ -163,7 +163,7 @@ function SearchPageContent() {
       </div>
 
       {invalidRange && (
-        <p className="mb-4 text-sm text-red-600">
+        <p className="mb-4 text-sm text-red-600 dark:text-red-400">
           The &ldquo;from&rdquo; date must not be after the &ldquo;to&rdquo;
           date.
         </p>
@@ -176,7 +176,7 @@ function SearchPageContent() {
       {hasAnyFilter && !error && !invalidRange && (
         <>
           {isLoading && (
-            <p className="mb-3 text-xs text-slate-400">Searching…</p>
+            <p className="mb-3 text-xs text-muted-foreground">Searching…</p>
           )}
 
           {results === null && (

@@ -43,10 +43,10 @@ export default function MeetingsPage() {
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Meetings
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           Transcripts and summaries from every recorded meeting.
         </p>
       </div>

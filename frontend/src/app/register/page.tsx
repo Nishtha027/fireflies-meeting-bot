@@ -55,25 +55,25 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="flex min-h-screen w-full items-center justify-center bg-slate-50 px-6">
-      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+    <main className="flex min-h-screen w-full items-center justify-center bg-background px-6">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-sm">
         <div className="mb-6 flex items-center gap-2.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
             M
           </span>
-          <span className="text-lg font-semibold tracking-tight text-slate-900">
+          <span className="text-lg font-semibold tracking-tight text-foreground">
             Meetscribe
           </span>
         </div>
 
-        <h1 className="text-xl font-semibold text-slate-900">Create your account</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-xl font-semibold text-foreground">Create your account</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Your own private space for the meetings you capture.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
           <div>
-            <label htmlFor="name" className="text-sm font-medium text-slate-700">
+            <label htmlFor="name" className="text-sm font-medium text-foreground">
               Name
             </label>
             <input
@@ -83,12 +83,12 @@ export default function RegisterPage() {
               autoComplete="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-300 focus:bg-white focus:outline-none"
+              className="mt-1.5 w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground focus:border-indigo-300 focus:bg-card focus:outline-none"
             />
           </div>
 
           <div>
-            <label htmlFor="email" className="text-sm font-medium text-slate-700">
+            <label htmlFor="email" className="text-sm font-medium text-foreground">
               Email
             </label>
             <input
@@ -97,14 +97,14 @@ export default function RegisterPage() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-300 focus:bg-white focus:outline-none"
+              className="mt-1.5 w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground focus:border-indigo-300 focus:bg-card focus:outline-none"
             />
           </div>
 
           <div>
             <label
               htmlFor="password"
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-foreground"
             >
               Password
             </label>
@@ -114,15 +114,15 @@ export default function RegisterPage() {
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-300 focus:bg-white focus:outline-none"
+              className="mt-1.5 w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground focus:border-indigo-300 focus:bg-card focus:outline-none"
             />
-            <p className="mt-1 text-xs text-slate-400">At least 8 characters.</p>
+            <p className="mt-1 text-xs text-muted-foreground">At least 8 characters.</p>
           </div>
 
           <div>
             <label
               htmlFor="confirmPassword"
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-foreground"
             >
               Confirm password
             </label>
@@ -132,11 +132,11 @@ export default function RegisterPage() {
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-300 focus:bg-white focus:outline-none"
+              className="mt-1.5 w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground focus:border-indigo-300 focus:bg-card focus:outline-none"
             />
           </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
           <button
             type="submit"
@@ -147,9 +147,9 @@ export default function RegisterPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-500">
+        <p className="mt-6 text-center text-sm text-muted-foreground">
           Already have an account?{" "}
-          <Link href="/login" className="font-medium text-indigo-600 hover:text-indigo-700">
+          <Link href="/login" className="font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">
             Sign in
           </Link>
         </p>

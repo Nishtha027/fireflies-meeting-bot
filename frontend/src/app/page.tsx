@@ -69,10 +69,10 @@ export default function HomePage() {
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Home
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           An at-a-glance look at everything Meetscribe has recorded.
         </p>
       </div>
@@ -90,15 +90,15 @@ export default function HomePage() {
           </div>
 
           <div className="mt-10">
-            <div className="flex items-center justify-between border-b border-slate-200">
+            <div className="flex items-center justify-between border-b border-border">
               <div className="flex gap-6">
                 <button
                   type="button"
                   onClick={() => setTab("recent")}
                   className={`-mb-px border-b-2 pb-2.5 text-sm font-medium transition ${
                     tab === "recent"
-                      ? "border-indigo-600 text-indigo-600"
-                      : "border-transparent text-slate-500 hover:text-slate-700"
+                      ? "border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   Recent
@@ -108,8 +108,8 @@ export default function HomePage() {
                   onClick={() => setTab("upcoming")}
                   className={`-mb-px border-b-2 pb-2.5 text-sm font-medium transition ${
                     tab === "upcoming"
-                      ? "border-indigo-600 text-indigo-600"
-                      : "border-transparent text-slate-500 hover:text-slate-700"
+                      ? "border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   Upcoming
@@ -118,7 +118,7 @@ export default function HomePage() {
               {tab === "recent" && (
                 <Link
                   href="/meetings"
-                  className="mb-2.5 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                  className="mb-2.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
                 >
                   View all meetings &rarr;
                 </Link>

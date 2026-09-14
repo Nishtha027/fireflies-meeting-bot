@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useTheme } from "next-themes";
 import {
   Bar,
   BarChart,
@@ -16,6 +18,18 @@ import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { SpeakerTalkTime } from "@/lib/types";
 import { speakerHexColor } from "@/lib/speakerColor";
 
+/** recharts renders SVG attributes, not Tailwind classes - `dark:` can't
+ * reach them, so the couple of colors that touch the chart itself (axis
+ * tick text, the hover cursor band) are resolved from the actual active
+ * theme instead. Mirrors the mounted-guard the Settings page's theme
+ * toggle uses, to avoid a server/client mismatch on first paint. */
+function useIsDarkMode(): boolean {
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  return mounted && resolvedTheme === "dark";
+}
+
 function formatSeconds(totalSeconds: number): string {
   const clamped = Math.max(0, Math.round(totalSeconds));
   const minutes = Math.floor(clamped / 60);
@@ -28,9 +42,9 @@ function TalkTimeTooltip({ active, payload }: TooltipContentProps<ValueType, Nam
   if (!active || !payload || payload.length === 0) return null;
   const point = payload[0].payload as SpeakerTalkTime;
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
-      <p className="font-semibold text-slate-900">{point.speaker_label}</p>
-      <p className="text-slate-500">
+    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-md">
+      <p className="font-semibold text-foreground">{point.speaker_label}</p>
+      <p className="text-muted-foreground">
         {formatSeconds(point.talk_time_seconds)} &middot; {point.percentage.toFixed(0)}%
       </p>
     </div>
@@ -40,7 +54,7 @@ function TalkTimeTooltip({ active, payload }: TooltipContentProps<ValueType, Nam
 function NoSpeakerData({ compact }: { compact?: boolean }) {
   return (
     <p
-      className={`text-center italic text-slate-400 ${compact ? "py-4 text-xs" : "py-8 text-sm"}`}
+      className={`text-center italic text-muted-foreground ${compact ? "py-4 text-xs" : "py-8 text-sm"}`}
     >
       No speaker data yet.
     </p>
@@ -83,8 +97,8 @@ export function TalkTimePieChart({ speakers }: { speakers: SpeakerTalkTime[] }) 
               style={{ backgroundColor: speakerHexColor(s.speaker_label) }}
               aria-hidden
             />
-            <span className="font-medium text-slate-800">{s.speaker_label}</span>
-            <span className="text-slate-500">
+            <span className="font-medium text-foreground">{s.speaker_label}</span>
+            <span className="text-muted-foreground">
               {s.percentage.toFixed(0)}% &middot; {formatSeconds(s.talk_time_seconds)}
             </span>
           </li>
@@ -97,6 +111,7 @@ export function TalkTimePieChart({ speakers }: { speakers: SpeakerTalkTime[] }) 
 /** Compact horizontal bar chart for the meeting detail sidebar - small
  * footprint, no legend/axis clutter, just bars sized by talk time. */
 export function TalkTimeBarChart({ speakers }: { speakers: SpeakerTalkTime[] }) {
+  const isDark = useIsDarkMode();
   if (speakers.length === 0) return <NoSpeakerData compact />;
 
   return (
@@ -111,12 +126,15 @@ export function TalkTimeBarChart({ speakers }: { speakers: SpeakerTalkTime[] }) 
           type="category"
           dataKey="speaker_label"
           width={104}
-          tick={{ fontSize: 11, fill: "#475569" }}
+          tick={{ fontSize: 11, fill: isDark ? "#94a3b8" : "#475569" }}
           tickLine={false}
           axisLine={false}
           interval={0}
         />
-        <Tooltip content={TalkTimeTooltip} cursor={{ fill: "#f8fafc" }} />
+        <Tooltip
+          content={TalkTimeTooltip}
+          cursor={{ fill: isDark ? "#1c2536" : "#f8fafc" }}
+        />
         <Bar dataKey="talk_time_seconds" radius={[0, 3, 3, 0]} barSize={12}>
           {speakers.map((s) => (
             <Cell key={s.speaker_label} fill={speakerHexColor(s.speaker_label)} />

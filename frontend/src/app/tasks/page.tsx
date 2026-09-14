@@ -18,13 +18,13 @@ type StatusFilter = "all" | "open" | "completed";
 
 function TasksSkeleton() {
   return (
-    <div className="animate-pulse divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
+    <div className="animate-pulse divide-y divide-border rounded-xl border border-border bg-card">
       {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="flex items-center gap-4 px-5 py-4">
-          <div className="h-3 flex-1 rounded bg-slate-100" />
-          <div className="h-3 w-20 rounded bg-slate-200" />
-          <div className="h-3 w-32 rounded bg-slate-100" />
-          <div className="h-3 w-24 rounded bg-slate-100" />
+          <div className="h-3 flex-1 rounded bg-muted" />
+          <div className="h-3 w-20 rounded bg-muted" />
+          <div className="h-3 w-32 rounded bg-muted" />
+          <div className="h-3 w-24 rounded bg-muted" />
         </div>
       ))}
     </div>
@@ -33,11 +33,11 @@ function TasksSkeleton() {
 
 function EmptyTasksState() {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center">
-      <p className="text-base font-semibold text-slate-700">
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-muted px-6 py-16 text-center">
+      <p className="text-base font-semibold text-foreground">
         No action items yet
       </p>
-      <p className="max-w-sm text-sm text-slate-500">
+      <p className="max-w-sm text-sm text-muted-foreground">
         Once a meeting is summarized, any action items it generates will show
         up here.
       </p>
@@ -47,11 +47,11 @@ function EmptyTasksState() {
 
 function NoMatchesState() {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center">
-      <p className="text-base font-semibold text-slate-700">
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-muted px-6 py-16 text-center">
+      <p className="text-base font-semibold text-foreground">
         No tasks match these filters
       </p>
-      <p className="max-w-sm text-sm text-slate-500">
+      <p className="max-w-sm text-sm text-muted-foreground">
         Try a different assignee or status filter.
       </p>
     </div>
@@ -74,7 +74,7 @@ function TaskRow({
   onToggle: (item: ActionItemWithMeeting) => void;
 }) {
   return (
-    <tr className={item.completed ? "bg-slate-50/60" : undefined}>
+    <tr className={item.completed ? "bg-muted/60" : undefined}>
       <td className="w-10 px-5 py-4">
         <input
           type="checkbox"
@@ -85,24 +85,24 @@ function TaskRow({
               ? `Mark "${item.description}" as open`
               : `Mark "${item.description}" as completed`
           }
-          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+          className="h-4 w-4 rounded border-border text-indigo-600 focus:ring-indigo-500"
         />
       </td>
       <td
         className={`max-w-md px-5 py-4 ${
-          item.completed ? "text-slate-400 line-through" : "text-slate-800"
+          item.completed ? "text-muted-foreground line-through" : "text-foreground"
         }`}
       >
         {item.description}
       </td>
-      <td className={`px-5 py-4 ${item.completed ? "text-slate-400" : "text-slate-600"}`}>
+      <td className={`px-5 py-4 ${item.completed ? "text-muted-foreground" : "text-muted-foreground"}`}>
         {item.assignee_guess ?? (
-          <span className="italic text-slate-400">{UNASSIGNED}</span>
+          <span className="italic text-muted-foreground">{UNASSIGNED}</span>
         )}
       </td>
       <td
         className={`whitespace-nowrap px-5 py-4 ${
-          item.completed ? "text-slate-400" : "text-slate-500"
+          item.completed ? "text-muted-foreground" : "text-muted-foreground"
         }`}
       >
         {formatDateTime(item.generated_at)}
@@ -119,20 +119,20 @@ function MeetingGroupSection({
   onToggle: (item: ActionItemWithMeeting) => void;
 }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-5 py-3">
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted px-5 py-3">
         <Link
           href={`/meetings/${group.meetingId}`}
-          className="font-medium text-indigo-600 hover:text-indigo-700"
+          className="font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
         >
           {meetingTitle(group.platform, group.nativeMeetingId)}
         </Link>
-        <span className="text-sm text-slate-500">
+        <span className="text-sm text-muted-foreground">
           {formatDateTime(group.meetingStartTime)}
         </span>
       </div>
       <table className="w-full text-left text-sm">
-        <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+        <thead className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
             <th className="w-10 px-5 py-3" />
             <th className="px-5 py-3 font-medium">Task</th>
@@ -140,7 +140,7 @@ function MeetingGroupSection({
             <th className="px-5 py-3 font-medium">Generated</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-border">
           {group.items.map((item) => (
             <TaskRow key={item.id} item={item} onToggle={onToggle} />
           ))}
@@ -257,22 +257,22 @@ export default function TasksPage() {
     <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             Tasks
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Every action item across every meeting, in one place.
           </p>
         </div>
 
         {items !== null && items.length > 0 && (
           <div className="flex flex-wrap items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-slate-600">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
               Status
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900"
+                className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground"
               >
                 <option value="all">All</option>
                 <option value="open">Open</option>
@@ -280,12 +280,12 @@ export default function TasksPage() {
               </select>
             </label>
 
-            <label className="flex items-center gap-2 text-sm text-slate-600">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
               Assignee
               <select
                 value={assigneeFilter}
                 onChange={(e) => setAssigneeFilter(e.target.value)}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900"
+                className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground"
               >
                 <option value="all">All assignees</option>
                 {assignees.map((name) => (

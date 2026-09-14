@@ -10,9 +10,21 @@ import { ComingSoonPanel } from "./ComingSoonPanel";
 type AccentColor = "indigo" | "sky" | "amber";
 
 const ACCENT_CLASSES: Record<AccentColor, { bg: string; text: string; hover: string }> = {
-  indigo: { bg: "bg-indigo-100", text: "text-indigo-600", hover: "hover:border-indigo-300" },
-  sky: { bg: "bg-sky-100", text: "text-sky-600", hover: "hover:border-sky-300" },
-  amber: { bg: "bg-amber-100", text: "text-amber-600", hover: "hover:border-amber-300" },
+  indigo: {
+    bg: "bg-indigo-100 dark:bg-indigo-500/15",
+    text: "text-indigo-600 dark:text-indigo-300",
+    hover: "hover:border-indigo-300 dark:hover:border-indigo-500/60",
+  },
+  sky: {
+    bg: "bg-sky-100 dark:bg-sky-500/15",
+    text: "text-sky-600 dark:text-sky-300",
+    hover: "hover:border-sky-300 dark:hover:border-sky-500/60",
+  },
+  amber: {
+    bg: "bg-amber-100 dark:bg-amber-500/15",
+    text: "text-amber-600 dark:text-amber-300",
+    hover: "hover:border-amber-300 dark:hover:border-amber-500/60",
+  },
 };
 
 interface QuickStartCardConfig {
@@ -36,7 +48,7 @@ function QuickStartCard({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-3.5 rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:shadow-md ${colors.hover}`}
+      className={`flex items-center gap-3.5 rounded-xl border border-border bg-card p-4 text-left transition hover:shadow-md ${colors.hover}`}
     >
       <span
         className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${colors.bg} ${colors.text}`}
@@ -44,14 +56,14 @@ function QuickStartCard({
         <Icon className="h-5 w-5" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-slate-900">
+        <span className="block text-sm font-semibold text-foreground">
           {label}
         </span>
-        <span className="block truncate text-xs text-slate-500">
+        <span className="block truncate text-xs text-muted-foreground">
           {description}
         </span>
       </span>
-      <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-400" />
+      <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
     </button>
   );
 }
@@ -63,8 +75,8 @@ export function QuickStart() {
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-slate-900">Quick Start</h2>
-      <p className="mt-1 text-sm text-slate-500">
+      <h2 className="text-lg font-semibold text-foreground">Quick Start</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
         Start a new recording or catch up on recent meetings.
       </p>
 

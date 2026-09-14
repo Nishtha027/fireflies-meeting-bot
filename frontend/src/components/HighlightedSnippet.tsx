@@ -18,7 +18,7 @@ export function HighlightedSnippet({ text }: { text: string }) {
         const rest = piece.slice(stopIndex + STOP.length);
         return (
           <span key={i}>
-            <mark className="rounded bg-amber-200 px-0.5 text-inherit">
+            <mark className="rounded bg-amber-200 px-0.5 text-inherit dark:bg-amber-400/40 dark:text-amber-100">
               {match}
             </mark>
             {rest}

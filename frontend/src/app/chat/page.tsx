@@ -84,10 +84,10 @@ export default function ChatPage() {
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-6">
       <div className="mb-4">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Chat
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           Ask questions across every meeting - answers are grounded in your
           actual transcripts and summaries.
         </p>
@@ -96,7 +96,7 @@ export default function ChatPage() {
       {indexing ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
           <Sparkles className="h-6 w-6 animate-pulse text-indigo-400" />
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-muted-foreground">
             Indexing your meetings for chat…
           </p>
         </div>
@@ -104,15 +104,15 @@ export default function ChatPage() {
         <>
           <div
             ref={scrollRef}
-            className="flex-1 space-y-5 overflow-y-auto rounded-xl border border-slate-200 bg-white p-5"
+            className="flex-1 space-y-5 overflow-y-auto rounded-xl border border-border bg-card p-5"
           >
             {exchanges.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
                 <Sparkles className="h-6 w-6 text-indigo-400" />
-                <p className="text-sm font-semibold text-slate-700">
+                <p className="text-sm font-semibold text-foreground">
                   Ask anything about your meetings
                 </p>
-                <p className="max-w-sm text-sm text-slate-500">
+                <p className="max-w-sm text-sm text-muted-foreground">
                   Answers only use what was actually said or decided in your
                   recorded meetings.
                 </p>
@@ -122,7 +122,7 @@ export default function ChatPage() {
                       key={q}
                       type="button"
                       onClick={() => ask(q)}
-                      className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                      className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
                     >
                       Try asking: &ldquo;{q}&rdquo;
                     </button>
@@ -138,20 +138,20 @@ export default function ChatPage() {
                 </div>
 
                 {exchange.status === "loading" && (
-                  <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-slate-100 px-4 py-2 text-sm text-slate-500">
+                  <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-muted px-4 py-2 text-sm text-muted-foreground">
                     Thinking…
                   </div>
                 )}
 
                 {exchange.status === "error" && (
-                  <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-red-50 px-4 py-2 text-sm text-red-700">
+                  <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-red-50 px-4 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
                     {exchange.error}
                   </div>
                 )}
 
                 {exchange.status === "done" && (
                   <div className="space-y-2">
-                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-slate-100 px-4 py-2 text-sm text-slate-800">
+                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-muted px-4 py-2 text-sm text-foreground">
                       {exchange.answer}
                     </div>
                     {exchange.sources && exchange.sources.length > 0 && (
@@ -173,7 +173,7 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask a question about your meetings..."
-              className="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none"
+              className="flex-1 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-indigo-300 focus:outline-none"
             />
             <button
               type="submit"

@@ -208,10 +208,10 @@ export default function MeetingDetailPage() {
   if (invalidId || notFound) {
     return (
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-16 text-center">
-        <h1 className="text-xl font-semibold text-slate-900">
+        <h1 className="text-xl font-semibold text-foreground">
           Meeting not found
         </h1>
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 text-sm text-muted-foreground">
           There&apos;s no meeting with id {params.id}.
         </p>
         <Link
@@ -240,7 +240,7 @@ export default function MeetingDetailPage() {
     <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
       <Link
         href="/meetings"
-        className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+        className="text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
       >
         &larr; Back to meetings
       </Link>
@@ -249,10 +249,10 @@ export default function MeetingDetailPage() {
         <div>
           {meeting ? (
             <>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                 {meetingTitle(meeting.platform, meeting.native_meeting_id)}
               </h1>
-              <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+              <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
                 <span>{formatDateTime(meeting.start_time)}</span>
                 {duration && (
                   <>
@@ -264,8 +264,8 @@ export default function MeetingDetailPage() {
             </>
           ) : (
             <div className="animate-pulse space-y-2">
-              <div className="h-7 w-64 rounded bg-slate-200" />
-              <div className="h-4 w-40 rounded bg-slate-100" />
+              <div className="h-7 w-64 rounded bg-muted" />
+              <div className="h-4 w-40 rounded bg-muted" />
             </div>
           )}
         </div>
@@ -273,14 +273,14 @@ export default function MeetingDetailPage() {
           <div className="flex items-center gap-2">
             <StatusBadge status={meeting.status} />
             {checkingStatus && (
-              <span className="text-xs text-slate-400">Checking status&hellip;</span>
+              <span className="text-xs text-muted-foreground">Checking status&hellip;</span>
             )}
             {meeting.status === "active" && (
               <button
                 type="button"
                 onClick={handleStopRecording}
                 disabled={stoppingRecording}
-                className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
               >
                 {stoppingRecording ? "Ending recording…" : "End Recording"}
               </button>
@@ -290,7 +290,7 @@ export default function MeetingDetailPage() {
               onClick={() => setShowDeleteConfirm(true)}
               aria-label="Delete meeting"
               title="Delete meeting"
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              className="rounded-lg p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
             >
               <Trash2 className="h-4 w-4" />
             </button>
@@ -299,7 +299,7 @@ export default function MeetingDetailPage() {
       </div>
 
       {stopRecordingError && (
-        <p className="mt-2 text-sm text-red-600">{stopRecordingError}</p>
+        <p className="mt-2 text-sm text-red-600 dark:text-red-400">{stopRecordingError}</p>
       )}
 
       {showDeleteConfirm && (
@@ -312,13 +312,13 @@ export default function MeetingDetailPage() {
             }
           }}
         >
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-muted-foreground">
             Delete this meeting? This can&apos;t be undone &mdash; its
             transcript, summary, and action items will be permanently
             removed.
           </p>
           {deleteError && (
-            <p className="mt-3 text-sm text-red-600">{deleteError}</p>
+            <p className="mt-3 text-sm text-red-600 dark:text-red-400">{deleteError}</p>
           )}
           <div className="mt-5 flex justify-end gap-2">
             <button
@@ -328,7 +328,7 @@ export default function MeetingDetailPage() {
                 setDeleteError(null);
               }}
               disabled={deleting}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
             </button>
@@ -345,8 +345,8 @@ export default function MeetingDetailPage() {
       )}
 
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
-        <section className="rounded-xl border border-slate-200 bg-white p-6 lg:col-span-2">
-          <h2 className="mb-4 text-sm font-semibold text-slate-900">
+        <section className="rounded-xl border border-border bg-card p-6 lg:col-span-2">
+          <h2 className="mb-4 text-sm font-semibold text-foreground">
             Transcript
           </h2>
           <div className="max-h-[70vh] overflow-y-auto pr-1">
@@ -361,14 +361,14 @@ export default function MeetingDetailPage() {
           </div>
         </section>
 
-        <aside className="rounded-xl border border-slate-200 bg-white p-6 lg:sticky lg:top-6">
+        <aside className="rounded-xl border border-border bg-card p-6 lg:sticky lg:top-6">
           {meeting &&
             !analyticsFailed &&
             (currentAnalytics === null || currentAnalytics.speakers.length > 0) && (
-              <div className="mb-6 border-b border-slate-100 pb-6">
-                <h3 className="mb-2 text-sm font-semibold text-slate-900">Talk time</h3>
+              <div className="mb-6 border-b border-border pb-6">
+                <h3 className="mb-2 text-sm font-semibold text-foreground">Talk time</h3>
                 {currentAnalytics === null ? (
-                  <div className="h-14 animate-pulse rounded bg-slate-100" />
+                  <div className="h-14 animate-pulse rounded bg-muted" />
                 ) : (
                   <TalkTimeBarChart speakers={currentAnalytics.speakers} />
                 )}
@@ -386,7 +386,7 @@ export default function MeetingDetailPage() {
 
           {meeting && !meeting.summary && (
             <div className="text-center">
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 This meeting hasn&apos;t been summarized yet.
               </p>
               <button
@@ -397,12 +397,12 @@ export default function MeetingDetailPage() {
                 {summarizing ? "Generating summary…" : "Generate Summary"}
               </button>
               {summarizing && (
-                <p className="mt-2 text-xs text-slate-400">
+                <p className="mt-2 text-xs text-muted-foreground">
                   This calls Groq and can take a few seconds.
                 </p>
               )}
               {summarizeError && (
-                <p className="mt-3 text-xs text-red-600">{summarizeError}</p>
+                <p className="mt-3 text-xs text-red-600 dark:text-red-400">{summarizeError}</p>
               )}
             </div>
           )}

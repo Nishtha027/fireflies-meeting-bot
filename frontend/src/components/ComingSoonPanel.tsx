@@ -11,15 +11,15 @@ export function ComingSoonPanel({
 }) {
   return (
     <div
-      className={`flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 text-center ${
+      className={`flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-muted text-center ${
         compact ? "px-6 py-10" : "px-6 py-16"
       }`}
     >
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-slate-500">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-border text-muted-foreground">
         <Icon className="h-5 w-5" />
       </div>
-      <p className="text-sm font-semibold text-slate-700">Coming soon</p>
-      <p className="max-w-sm text-sm text-slate-500">{message}</p>
+      <p className="text-sm font-semibold text-foreground">Coming soon</p>
+      <p className="max-w-sm text-sm text-muted-foreground">{message}</p>
     </div>
   );
 }

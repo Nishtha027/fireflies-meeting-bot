@@ -99,10 +99,10 @@ export default function AnalyticsPage() {
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Analytics
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           Talk-time and meeting stats across everything Meetscribe has recorded.
         </p>
       </div>
@@ -133,8 +133,8 @@ export default function AnalyticsPage() {
           </div>
 
           <div className="mt-10">
-            <h2 className="text-lg font-semibold text-slate-900">Per-meeting talk time</h2>
-            <p className="mt-1 text-sm text-slate-500">
+            <h2 className="text-lg font-semibold text-foreground">Per-meeting talk time</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               Select a meeting to see how talk time was split between speakers.
             </p>
 
@@ -142,7 +142,7 @@ export default function AnalyticsPage() {
               {meetings === null && (
                 <div className="animate-pulse space-y-2">
                   {Array.from({ length: 3 }).map((_, i) => (
-                    <div key={i} className="h-16 rounded-xl bg-slate-100" />
+                    <div key={i} className="h-16 rounded-xl bg-muted" />
                   ))}
                 </div>
               )}
@@ -163,14 +163,14 @@ export default function AnalyticsPage() {
                           aria-pressed={isSelected}
                           className={`rounded-xl border px-4 py-3 text-left transition ${
                             isSelected
-                              ? "border-indigo-300 bg-indigo-50"
-                              : "border-slate-200 bg-white hover:border-slate-300"
+                              ? "border-indigo-300 bg-indigo-50 dark:border-indigo-500/60 dark:bg-indigo-500/15"
+                              : "border-border bg-card hover:border-muted-foreground/40"
                           }`}
                         >
-                          <p className="text-sm font-medium text-slate-900">
+                          <p className="text-sm font-medium text-foreground">
                             {meetingTitle(m.platform, m.native_meeting_id)}
                           </p>
-                          <p className="mt-0.5 text-xs text-slate-500">
+                          <p className="mt-0.5 text-xs text-muted-foreground">
                             {formatDateTime(m.start_time)}
                             {duration && <> &middot; {duration}</>}
                           </p>
@@ -179,21 +179,21 @@ export default function AnalyticsPage() {
                     })}
                   </div>
 
-                  <div className="rounded-xl border border-slate-200 bg-white p-6 lg:col-span-2">
+                  <div className="rounded-xl border border-border bg-card p-6 lg:col-span-2">
                     {selectedMeeting && (
-                      <h3 className="mb-4 text-sm font-semibold text-slate-900">
+                      <h3 className="mb-4 text-sm font-semibold text-foreground">
                         {meetingTitle(selectedMeeting.platform, selectedMeeting.native_meeting_id)}
                       </h3>
                     )}
 
                     {meetingAnalyticsError && (
-                      <p className="text-sm text-red-600">
+                      <p className="text-sm text-red-600 dark:text-red-400">
                         Couldn&apos;t load this meeting&apos;s talk-time breakdown.
                       </p>
                     )}
 
                     {!meetingAnalyticsError && currentMeetingAnalytics === null && (
-                      <div className="h-48 animate-pulse rounded bg-slate-100" />
+                      <div className="h-48 animate-pulse rounded bg-muted" />
                     )}
 
                     {!meetingAnalyticsError && currentMeetingAnalytics && (

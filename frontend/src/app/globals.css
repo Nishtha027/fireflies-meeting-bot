@@ -1,8 +1,68 @@
 @import "tailwindcss";
 
+/*
+ * Dark mode was attempted once before and removed: an un-layered CSS rule
+ * silently beat every `dark:` utility class regardless of specificity,
+ * because Tailwind v4's utilities live inside native CSS cascade layers
+ * (`@layer theme, base, components, utilities`) and an UN-layered
+ * declaration always wins over a LAYERED one, no matter its specificity -
+ * that's a cascade-layers rule, not a specificity one. The fix is
+ * structural: never add a plain, un-layered color rule to this file again.
+ * Everything below either goes through Tailwind's own directives
+ * (`@custom-variant`, `@theme`, which the Tailwind build owns and places
+ * in its own layers) or is explicitly wrapped in `@layer base`.
+ *
+ * `@custom-variant dark` is v4's replacement for v3's `darkMode: "class"`
+ * config option (there's no tailwind.config.js here to put that in) - it
+ * makes `dark:` utilities apply whenever a `.dark` class is present on an
+ * ancestor (or the element itself), so a manual Light/Dark/System toggle
+ * (next-themes, `attribute="class"`) can drive it instead of only
+ * `prefers-color-scheme`.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+}
+
+/*
+ * The actual light/dark values. These are plain custom-property
+ * definitions, not rules competing with Tailwind's own utility rules for
+ * the same CSS property - `bg-background` (generated from --color-background
+ * above) just reads whatever --background currently resolves to, via
+ * ordinary (non-layered) custom-property inheritance. That's what makes
+ * this safe: there is exactly one rule per element setting `background-color`
+ * (Tailwind's own utility, correctly inside @layer utilities), and only the
+ * VALUE it reads changes based on which of these blocks is in scope - never
+ * two rules fighting over the same declaration across layers.
+ *
+ * Light values match this app's existing hardcoded slate palette exactly
+ * (bg-slate-50 page background, white cards, slate-200 borders, slate-900/
+ * 500 text) so enabling this system doesn't shift light mode at all.
+ */
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+}
+
+.dark {
+  --background: #0b1120;
+  --foreground: #e2e8f0;
+  --card: #161f32;
+  --border: #293548;
+  --muted: #1c2536;
+  --muted-foreground: #94a3b8;
 }
 
 body {

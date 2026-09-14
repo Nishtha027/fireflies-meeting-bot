@@ -35,24 +35,24 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen w-full items-center justify-center bg-slate-50 px-6">
-      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+    <main className="flex min-h-screen w-full items-center justify-center bg-background px-6">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-sm">
         <div className="mb-6 flex items-center gap-2.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
             M
           </span>
-          <span className="text-lg font-semibold tracking-tight text-slate-900">
+          <span className="text-lg font-semibold tracking-tight text-foreground">
             Meetscribe
           </span>
         </div>
 
-        <h1 className="text-xl font-semibold text-slate-900">Sign in</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-xl font-semibold text-foreground">Sign in</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Log in to view your meetings.
         </p>
 
         {justDeleted && (
-          <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
             Your account has been deleted.
           </p>
         )}
@@ -61,7 +61,7 @@ export default function LoginPage() {
           <div>
             <label
               htmlFor="email"
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-foreground"
             >
               Email
             </label>
@@ -72,14 +72,14 @@ export default function LoginPage() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-300 focus:bg-white focus:outline-none"
+              className="mt-1.5 w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground focus:border-indigo-300 focus:bg-card focus:outline-none"
             />
           </div>
 
           <div>
             <label
               htmlFor="password"
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-medium text-foreground"
             >
               Password
             </label>
@@ -89,11 +89,11 @@ export default function LoginPage() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-300 focus:bg-white focus:outline-none"
+              className="mt-1.5 w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground focus:border-indigo-300 focus:bg-card focus:outline-none"
             />
           </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
           <button
             type="submit"
@@ -104,9 +104,9 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-500">
+        <p className="mt-6 text-center text-sm text-muted-foreground">
           New user?{" "}
-          <Link href="/register" className="font-medium text-indigo-600 hover:text-indigo-700">
+          <Link href="/register" className="font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">
             Register here
           </Link>
         </p>

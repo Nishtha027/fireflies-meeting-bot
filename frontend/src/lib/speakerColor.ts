@@ -2,12 +2,12 @@
 // visually distinct color, assigned deterministically by name (no state
 // needed, no color reused unnecessarily until the palette runs out).
 const PALETTE = [
-  { text: "text-indigo-700", bg: "bg-indigo-100", dot: "bg-indigo-500" },
-  { text: "text-teal-700", bg: "bg-teal-100", dot: "bg-teal-500" },
-  { text: "text-amber-700", bg: "bg-amber-100", dot: "bg-amber-500" },
-  { text: "text-rose-700", bg: "bg-rose-100", dot: "bg-rose-500" },
-  { text: "text-violet-700", bg: "bg-violet-100", dot: "bg-violet-500" },
-  { text: "text-cyan-700", bg: "bg-cyan-100", dot: "bg-cyan-500" },
+  { text: "text-indigo-700 dark:text-indigo-300", bg: "bg-indigo-100", dot: "bg-indigo-500" },
+  { text: "text-teal-700 dark:text-teal-300", bg: "bg-teal-100", dot: "bg-teal-500" },
+  { text: "text-amber-700 dark:text-amber-300", bg: "bg-amber-100", dot: "bg-amber-500" },
+  { text: "text-rose-700 dark:text-rose-300", bg: "bg-rose-100", dot: "bg-rose-500" },
+  { text: "text-violet-700 dark:text-violet-300", bg: "bg-violet-100", dot: "bg-violet-500" },
+  { text: "text-cyan-700 dark:text-cyan-300", bg: "bg-cyan-100", dot: "bg-cyan-500" },
 ];
 
 function hashString(value: string): number {
