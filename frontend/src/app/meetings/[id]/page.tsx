@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Check, Pencil, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Pencil, Trash2, X } from "lucide-react";
 import {
   ApiError,
   deleteMeeting,
@@ -20,10 +20,12 @@ import type { MeetingAnalytics, MeetingDetail } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ErrorState } from "@/components/ErrorState";
 import { Modal } from "@/components/Modal";
+import { AudioPlayer, type AudioPlayerHandle } from "@/components/AudioPlayer";
 import { TranscriptView, TranscriptSkeleton } from "@/components/TranscriptView";
 import { SummaryPanelContent, SidebarSkeleton } from "@/components/SummarySidebar";
 import { TalkTimeBarChart } from "@/components/TalkTimeChart";
-import { formatDateTime, formatDuration, meetingTitle } from "@/lib/format";
+import { formatDateTime, formatDuration, meetingTitle, segmentElapsedSeconds } from "@/lib/format";
+import { findTranscriptMatches } from "@/lib/transcriptSearch";
 
 // After the initial POST /stop-recording call, Vexa's bot typically needs a
 // few seconds to actually finalize the meeting (it answers "stopping"
@@ -168,6 +170,100 @@ export default function MeetingDetailPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [stoppingRecording, setStoppingRecording] = useState(false);
   const [stopRecordingError, setStopRecordingError] = useState<string | null>(null);
+
+  // --- Audio <-> transcript bidirectional sync -----------------------
+  const audioPlayerRef = useRef<AudioPlayerHandle>(null);
+  const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null);
+
+  const knownDurationSeconds = useMemo(() => {
+    if (!meeting?.start_time || !meeting.end_time) return undefined;
+    const startMs = new Date(meeting.start_time).getTime();
+    const endMs = new Date(meeting.end_time).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+      return undefined;
+    }
+    return (endMs - startMs) / 1000;
+  }, [meeting]);
+
+  // start_timestamp values are absolute epoch seconds; this maps each one
+  // to elapsed-seconds-from-meeting-start once per meeting load, using the
+  // exact same anchoring math the mm:ss labels use (lib/format.ts).
+  const segmentElapsed = useMemo(() => {
+    if (!meeting) return [];
+    return meeting.transcript.map((seg) =>
+      segmentElapsedSeconds(seg.start_timestamp, meeting.start_time),
+    );
+  }, [meeting]);
+
+  // Resets activeSegmentIndex when navigating to a different meeting - the
+  // React-recommended "adjust state during render" pattern (comparing
+  // against the last-seen id) rather than a useEffect, since this is state
+  // derived from a prop change, not a subscription to an external system.
+  const [lastSyncedMeetingId, setLastSyncedMeetingId] = useState(meetingId);
+  if (meetingId !== lastSyncedMeetingId) {
+    setLastSyncedMeetingId(meetingId);
+    setActiveSegmentIndex(null);
+  }
+
+  // Re-created every render (not memoized), so this always closes over the
+  // current activeSegmentIndex - safe to compare against directly, no ref
+  // mirror needed. Only calls setState (the thing that re-renders the
+  // transcript) when the active segment genuinely changes, even though
+  // timeupdate itself fires several times a second.
+  function handleAudioTimeUpdate(seconds: number) {
+    // Segments are chronological, so the last one whose elapsed start is
+    // <= the current playback position is "active" - stop as soon as we
+    // pass it instead of scanning the whole transcript every tick.
+    let idx: number | null = null;
+    for (let i = 0; i < segmentElapsed.length; i++) {
+      const elapsed = segmentElapsed[i];
+      if (elapsed === null) continue;
+      if (elapsed <= seconds) idx = i;
+      else break;
+    }
+    if (idx !== activeSegmentIndex) {
+      setActiveSegmentIndex(idx);
+    }
+  }
+
+  function handleSegmentClick(index: number) {
+    const elapsed = segmentElapsed[index];
+    if (elapsed === null || elapsed === undefined) return;
+    audioPlayerRef.current?.seekTo(elapsed);
+  }
+
+  // --- "Find in transcript" (client-side, distinct from global Search) ---
+  const [transcriptQuery, setTranscriptQuery] = useState("");
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+
+  const transcriptMatches = useMemo(() => {
+    if (!meeting) return [];
+    return findTranscriptMatches(meeting.transcript, transcriptQuery);
+  }, [meeting, transcriptQuery]);
+
+  // Same render-time reset pattern as activeSegmentIndex above: jump back
+  // to the first match whenever the query changes (or on a new meeting).
+  const matchResetKey = `${meetingId}|${transcriptQuery}`;
+  const [lastMatchResetKey, setLastMatchResetKey] = useState(matchResetKey);
+  if (matchResetKey !== lastMatchResetKey) {
+    setLastMatchResetKey(matchResetKey);
+    if (currentMatchIndex !== 0) setCurrentMatchIndex(0);
+  }
+
+  const currentMatch =
+    transcriptMatches.length > 0
+      ? transcriptMatches[currentMatchIndex % transcriptMatches.length]
+      : null;
+
+  function goToNextMatch() {
+    if (transcriptMatches.length === 0) return;
+    setCurrentMatchIndex((i) => (i + 1) % transcriptMatches.length);
+  }
+
+  function goToPrevMatch() {
+    if (transcriptMatches.length === 0) return;
+    setCurrentMatchIndex((i) => (i - 1 + transcriptMatches.length) % transcriptMatches.length);
+  }
 
   const invalidId = Number.isNaN(meetingId);
 
@@ -458,16 +554,75 @@ export default function MeetingDetailPage() {
         </Modal>
       )}
 
+      {meeting && (
+        <div className="mt-6">
+          <AudioPlayer
+            ref={audioPlayerRef}
+            meetingId={meeting.id}
+            knownDurationSeconds={knownDurationSeconds}
+            onTimeUpdate={handleAudioTimeUpdate}
+          />
+        </div>
+      )}
+
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
         <section className="rounded-xl border border-border bg-card p-6 lg:col-span-2">
-          <h2 className="mb-4 text-sm font-semibold text-foreground">
-            Transcript
-          </h2>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-foreground">Transcript</h2>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={transcriptQuery}
+                onChange={(e) => setTranscriptQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  if (e.shiftKey) goToPrevMatch();
+                  else goToNextMatch();
+                }}
+                placeholder="Find in transcript"
+                className="w-40 rounded-lg border border-border bg-muted px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:border-indigo-300 focus:bg-card focus:outline-none sm:w-48"
+              />
+              {transcriptQuery.trim() && (
+                <div className="flex items-center gap-0.5 text-xs text-muted-foreground">
+                  <span className="mr-1 tabular-nums">
+                    {transcriptMatches.length > 0
+                      ? `${(currentMatchIndex % transcriptMatches.length) + 1} of ${transcriptMatches.length}`
+                      : "0 of 0"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={goToPrevMatch}
+                    disabled={transcriptMatches.length === 0}
+                    aria-label="Previous match"
+                    title="Previous match (Shift+Enter)"
+                    className="rounded p-1 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronUp className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goToNextMatch}
+                    disabled={transcriptMatches.length === 0}
+                    aria-label="Next match"
+                    title="Next match (Enter)"
+                    className="rounded p-1 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
           <div className="max-h-[70vh] overflow-y-auto pr-1">
             {meeting ? (
               <TranscriptView
                 segments={meeting.transcript}
                 meetingStartTime={meeting.start_time}
+                activeSegmentIndex={activeSegmentIndex}
+                onSegmentClick={handleSegmentClick}
+                matches={transcriptMatches}
+                currentMatch={currentMatch}
               />
             ) : (
               <TranscriptSkeleton />

@@ -113,21 +113,40 @@ function formatMinutesSeconds(totalSeconds: number): string {
 /**
  * Segment start/end timestamps from Vexa are absolute Unix epoch seconds, not
  * offsets from meeting start - so we anchor against the meeting's own
- * start_time to get a sensible elapsed "mm:ss" marker (plain text, no
- * playback). Falls back to a wall-clock time if there's no meeting
- * start_time to anchor against, or the segment predates it.
+ * start_time to get the elapsed seconds from meeting start. Returns null
+ * (rather than 0) when there's no meeting start_time to anchor against, or
+ * the segment predates it - callers fall back to a wall-clock display in
+ * that case, and must NOT treat null as "0 seconds in" (e.g. for audio
+ * seeking, where that would silently jump to the very start instead of
+ * doing nothing).
+ *
+ * The single source of truth for this calculation - formatSegmentTime()
+ * below (mm:ss display) and the meeting detail page's audio-transcript sync
+ * (click-to-seek, playback-to-highlight) both call this rather than
+ * recomputing the epoch-anchoring math separately.
+ */
+export function segmentElapsedSeconds(
+  segmentEpochSeconds: number,
+  meetingStartIso: string | null,
+): number | null {
+  if (!meetingStartIso) return null;
+  const meetingStartEpoch = new Date(meetingStartIso).getTime() / 1000;
+  const elapsed = segmentEpochSeconds - meetingStartEpoch;
+  if (Number.isFinite(elapsed) && elapsed >= 0) return elapsed;
+  return null;
+}
+
+/**
+ * Elapsed "mm:ss" marker for a transcript segment (plain text, no playback) -
+ * see segmentElapsedSeconds() above for the anchoring calculation. Falls
+ * back to a wall-clock time when there's nothing to anchor against.
  */
 export function formatSegmentTime(
   segmentEpochSeconds: number,
   meetingStartIso: string | null,
 ): string {
-  if (meetingStartIso) {
-    const meetingStartEpoch = new Date(meetingStartIso).getTime() / 1000;
-    const elapsed = segmentEpochSeconds - meetingStartEpoch;
-    if (Number.isFinite(elapsed) && elapsed >= 0) {
-      return formatMinutesSeconds(elapsed);
-    }
-  }
+  const elapsed = segmentElapsedSeconds(segmentEpochSeconds, meetingStartIso);
+  if (elapsed !== null) return formatMinutesSeconds(elapsed);
   const date = new Date(segmentEpochSeconds * 1000);
   if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat(undefined, { timeStyle: "medium" }).format(

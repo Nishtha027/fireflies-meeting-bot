@@ -19,7 +19,7 @@ import traceback
 from contextlib import asynccontextmanager
 from datetime import date
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Query, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -76,6 +76,7 @@ from embeddings import (
 )
 from embeddings import MeetingNotFoundError as EmbedMeetingNotFoundError
 from ingest_transcript import IngestError, VexaAPIError, VexaNotFoundError, ingest
+from meeting_audio import MeetingAudioError, NoRecordingError, get_audio_stream
 from poller import start_scheduler, stop_scheduler
 from schemas import (
     AccountUpdateRequest,
@@ -763,6 +764,41 @@ def get_meeting(
             ActionItemOut(description=item.description, assignee_guess=item.assignee_guess)
             for item in action_items
         ],
+    )
+
+
+@protected.get("/meetings/{meeting_id}/audio")
+def get_meeting_audio(
+    request: Request,
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """Proxy a meeting's recorded audio from Vexa - the browser only ever
+    talks to us, never to Vexa's API/key directly. Forwards the browser's
+    own Range header through to Vexa's Range-aware endpoint (see
+    meeting_audio.py) and relays back whatever status/headers Vexa answers
+    with (200 or 206 Partial Content), so seeking fetches only the
+    requested byte slice instead of the whole recording.
+    """
+    meeting = db.get(Meeting, meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+    if meeting.vexa_meeting_id is None:
+        raise HTTPException(status_code=404, detail="No audio available for this meeting.")
+
+    try:
+        stream = get_audio_stream(meeting.vexa_meeting_id, request.headers.get("range"))
+    except NoRecordingError:
+        raise HTTPException(status_code=404, detail="No audio available for this meeting.")
+    except MeetingAudioError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    return Response(
+        content=stream.content,
+        status_code=stream.status_code,
+        media_type=stream.content_type,
+        headers={"Accept-Ranges": "bytes", **stream.headers},
     )
 
 
