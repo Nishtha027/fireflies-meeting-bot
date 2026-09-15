@@ -139,6 +139,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # this, Python's logging module has no configured handler and silently
 # drops everything below WARNING.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+logger = logging.getLogger("meetscribe.main")
 
 
 @asynccontextmanager
@@ -811,6 +812,21 @@ class _ChromaCleanupError(Exception):
     mislabeled as each other."""
 
 
+def _find_other_local_reference(db: Session, meeting: Meeting) -> Meeting | None:
+    """Another Meeting row (any user) that still points at the same Vexa
+    recording as `meeting` - i.e. shares its (platform, native_meeting_id).
+    See the incident note in _delete_meeting_fully() for why this matters."""
+    return (
+        db.query(Meeting)
+        .filter(
+            Meeting.platform == meeting.platform,
+            Meeting.native_meeting_id == meeting.native_meeting_id,
+            Meeting.id != meeting.id,
+        )
+        .first()
+    )
+
+
 def _delete_meeting_fully(db: Session, meeting: Meeting) -> None:
     """The actual cross-system cleanup for one meeting - Vexa's recording,
     then Chroma's embeddings, then the Postgres row itself. Shared by the
@@ -831,7 +847,33 @@ def _delete_meeting_fully(db: Session, meeting: Meeting) -> None:
     # Vexa retains indefinitely by default) outlived the meeting in our
     # own app. A 404 from Vexa means there's nothing left to clean up
     # there, which is success, not failure (see delete_vexa_recording.py).
-    delete_vexa_meeting(meeting.platform, meeting.native_meeting_id)
+    #
+    # INCIDENT (2026-09-15): Vexa's DELETE /meetings/{platform}/{native_id}
+    # is keyed by the native meeting code alone - Vexa has no concept of our
+    # app's users, so it deletes that recording GLOBALLY, even if other rows
+    # in our own meetings table (under a different user_id) still point at
+    # the exact same (platform, native_meeting_id). This is not hypothetical:
+    # our own QA process deliberately mirrors a real meeting's
+    # native_meeting_id onto a disposable test account to exercise real audio
+    # playback, and deleting that disposable account cascaded a real Vexa
+    # delete that destroyed two real users' recordings (meetings id=2 and
+    # id=18) even though those meetings were never touched locally. Before
+    # ever calling Vexa's delete-by-native-key, we MUST confirm no other
+    # local row still depends on that same recording - if one does, this
+    # call is skipped and only our own local data for `meeting` is removed.
+    # Do not remove this check.
+    other = _find_other_local_reference(db, meeting)
+    if other is not None:
+        logger.info(
+            "Skipping Vexa-side delete for %s/%s: meeting id=%d still references "
+            "it - removing only meeting id=%d's local data.",
+            meeting.platform,
+            meeting.native_meeting_id,
+            other.id,
+            meeting.id,
+        )
+    else:
+        delete_vexa_meeting(meeting.platform, meeting.native_meeting_id)
 
     # Chroma next: same reasoning as Vexa above - no DB cascade, not part
     # of the Postgres transaction below, so if this fails we abort here
