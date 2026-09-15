@@ -7,6 +7,12 @@ a single machine.
 
 See [docs/PHASES.md](docs/PHASES.md) for the phase-by-phase plan and status.
 
+**Before writing any test that needs real audio or a disposable account,
+read [docs/TESTING_GUIDELINES.md](docs/TESTING_GUIDELINES.md)** - it documents
+a real incident where mirroring a real meeting's identifiers into test data
+led to permanent data loss, and the rule that prevents it from happening
+again.
+
 ## Architecture
 
 Meeting join and audio capture are handled by a self-hosted instance of
