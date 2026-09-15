@@ -122,6 +122,13 @@ class Summary(Base):
     # blob) were preferred for later direct SQL querying.
     key_points: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     decisions: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # List of {"title": str, "start_time_seconds": float}, each snapped to a
+    # real transcript segment's elapsed start time before being stored (see
+    # summarize_meeting.py) - never a raw/interpolated model timestamp.
+    # Nullable: only populated once a meeting is (re)summarized after this
+    # feature shipped, older summaries stay null rather than being
+    # backfilled (regenerating is already a one-click action).
+    chapters: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     meeting: Mapped["Meeting"] = relationship(back_populates="summaries")

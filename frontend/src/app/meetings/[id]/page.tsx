@@ -171,9 +171,10 @@ export default function MeetingDetailPage() {
   const [stoppingRecording, setStoppingRecording] = useState(false);
   const [stopRecordingError, setStopRecordingError] = useState<string | null>(null);
 
-  // --- Audio <-> transcript bidirectional sync -----------------------
+  // --- Audio <-> transcript/chapters bidirectional sync ---------------
   const audioPlayerRef = useRef<AudioPlayerHandle>(null);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null);
+  const [activeChapterIndex, setActiveChapterIndex] = useState<number | null>(null);
 
   const knownDurationSeconds = useMemo(() => {
     if (!meeting?.start_time || !meeting.end_time) return undefined;
@@ -195,21 +196,28 @@ export default function MeetingDetailPage() {
     );
   }, [meeting]);
 
-  // Resets activeSegmentIndex when navigating to a different meeting - the
-  // React-recommended "adjust state during render" pattern (comparing
-  // against the last-seen id) rather than a useEffect, since this is state
-  // derived from a prop change, not a subscription to an external system.
+  // Resets activeSegmentIndex/activeChapterIndex when navigating to a
+  // different meeting - the React-recommended "adjust state during render"
+  // pattern (comparing against the last-seen id) rather than a useEffect,
+  // since this is state derived from a prop change, not a subscription to
+  // an external system.
   const [lastSyncedMeetingId, setLastSyncedMeetingId] = useState(meetingId);
   if (meetingId !== lastSyncedMeetingId) {
     setLastSyncedMeetingId(meetingId);
     setActiveSegmentIndex(null);
+    setActiveChapterIndex(null);
   }
 
+  // Chapters are already sorted (and grounded in real transcript moments)
+  // server-side - see backend/summarize_meeting.py's _snap_chapters(). Null
+  // when the summary hasn't been (re)generated with chapters support yet.
+  const chapters = useMemo(() => meeting?.summary?.chapters ?? [], [meeting]);
+
   // Re-created every render (not memoized), so this always closes over the
-  // current activeSegmentIndex - safe to compare against directly, no ref
-  // mirror needed. Only calls setState (the thing that re-renders the
-  // transcript) when the active segment genuinely changes, even though
-  // timeupdate itself fires several times a second.
+  // current activeSegmentIndex/activeChapterIndex - safe to compare against
+  // directly, no ref mirror needed. Only calls setState (the thing that
+  // re-renders the transcript/chapters list) when the active item genuinely
+  // changes, even though timeupdate itself fires several times a second.
   function handleAudioTimeUpdate(seconds: number) {
     // Segments are chronological, so the last one whose elapsed start is
     // <= the current playback position is "active" - stop as soon as we
@@ -224,12 +232,30 @@ export default function MeetingDetailPage() {
     if (idx !== activeSegmentIndex) {
       setActiveSegmentIndex(idx);
     }
+
+    // Same "last one at-or-before current time" rule, applied to chapters.
+    let chapterIdx: number | null = null;
+    for (let i = 0; i < chapters.length; i++) {
+      if (chapters[i].start_time_seconds <= seconds) chapterIdx = i;
+      else break;
+    }
+    if (chapterIdx !== activeChapterIndex) {
+      setActiveChapterIndex(chapterIdx);
+    }
   }
 
   function handleSegmentClick(index: number) {
     const elapsed = segmentElapsed[index];
     if (elapsed === null || elapsed === undefined) return;
     audioPlayerRef.current?.seekTo(elapsed);
+  }
+
+  // Reuses the exact same seek mechanism as transcript click-to-seek above -
+  // AudioPlayerHandle.seekTo() - rather than a separate implementation.
+  function handleChapterClick(index: number) {
+    const chapter = chapters[index];
+    if (!chapter) return;
+    audioPlayerRef.current?.seekTo(chapter.start_time_seconds);
   }
 
   // --- "Find in transcript" (client-side, distinct from global Search) ---
@@ -650,6 +676,8 @@ export default function MeetingDetailPage() {
             <SummaryPanelContent
               summary={meeting.summary}
               actionItems={meeting.action_items}
+              activeChapterIndex={activeChapterIndex}
+              onChapterClick={handleChapterClick}
             />
           )}
 

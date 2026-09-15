@@ -1,4 +1,5 @@
 import type { ActionItem, Summary } from "@/lib/types";
+import { ChaptersList } from "./ChaptersList";
 
 function BulletList({ items, emptyLabel }: { items: string[]; emptyLabel: string }) {
   if (items.length === 0) {
@@ -45,12 +46,28 @@ function ActionItemsList({ items }: { items: ActionItem[] }) {
 export function SummaryPanelContent({
   summary,
   actionItems,
+  activeChapterIndex = null,
+  onChapterClick,
 }: {
   summary: Summary;
   actionItems: ActionItem[];
+  /** The chapter whose start_time_seconds is at-or-before the audio
+   * player's current playback position - null when nothing is playing. */
+  activeChapterIndex?: number | null;
+  /** Click-to-seek: fired with a chapter's index when one is clicked. */
+  onChapterClick?: (index: number) => void;
 }) {
   return (
     <div className="space-y-6">
+      <section>
+        <h3 className="mb-2 text-sm font-semibold text-foreground">Chapters</h3>
+        <ChaptersList
+          chapters={summary.chapters}
+          activeIndex={activeChapterIndex}
+          onChapterClick={onChapterClick}
+        />
+      </section>
+
       <section>
         <h3 className="mb-2 text-sm font-semibold text-foreground">Overview</h3>
         <p className="text-sm leading-relaxed text-foreground">

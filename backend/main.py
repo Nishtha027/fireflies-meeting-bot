@@ -91,6 +91,7 @@ from schemas import (
     CaptureStatusResponse,
     ChangePasswordRequest,
     ChangePasswordResponse,
+    ChapterOut,
     ChatRequest,
     ChatResponse,
     ChatSourceOut,
@@ -756,6 +757,7 @@ def get_meeting(
                 overview_text=summary.overview_text,
                 key_points=summary.key_points or [],
                 decisions=summary.decisions or [],
+                chapters=[ChapterOut(**c) for c in (summary.chapters or [])],
             )
             if summary
             else None
@@ -1020,6 +1022,7 @@ def trigger_summarize(
             ActionItemOut(description=item["description"], assignee_guess=item["assignee"])
             for item in result.action_items
         ],
+        chapters=[ChapterOut(**c) for c in result.chapters],
     )
 
 

@@ -103,7 +103,11 @@ export function isThisWeek(iso: string | null): boolean {
   return date >= startOfWeek && date <= now;
 }
 
-function formatMinutesSeconds(totalSeconds: number): string {
+/** Plain "mm:ss" from a raw seconds total - shared by the transcript's
+ * per-segment time marker (formatSegmentTime below) and the Chapters list's
+ * timestamp label (ChaptersList.tsx), so both render elapsed time the same
+ * way. */
+export function formatMinutesSeconds(totalSeconds: number): string {
   const clamped = Math.max(0, Math.round(totalSeconds));
   const minutes = Math.floor(clamped / 60);
   const secs = clamped % 60;

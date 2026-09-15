@@ -82,6 +82,7 @@ class SummarizeResult:
     key_points: list[str]
     decisions: list[str]
     action_items: list[dict] = field(default_factory=list)  # [{"description": ..., "assignee": ...}]
+    chapters: list[dict] = field(default_factory=list)  # [{"title": ..., "start_time_seconds": ...}], snapped
 
 
 RESPONSE_JSON_SCHEMA = {
@@ -102,8 +103,20 @@ RESPONSE_JSON_SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        "chapters": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "start_time_seconds": {"type": "number"},
+                },
+                "required": ["title", "start_time_seconds"],
+                "additionalProperties": False,
+            },
+        },
     },
-    "required": ["overview", "key_points", "decisions", "action_items"],
+    "required": ["overview", "key_points", "decisions", "action_items", "chapters"],
     "additionalProperties": False,
 }
 # Conservative ceiling before we warn: leaves headroom for the system
@@ -126,6 +139,14 @@ Rules:
   from weak evidence. If it's unclear, use exactly "Unassigned".
 - If the transcript is too short or unclear to support a field, return an empty \
   array or a brief honest overview rather than inventing content.
+- For "chapters": identify genuine topic shifts in the conversation - typically a \
+  handful for a normal meeting (roughly 3-8), never one chapter per sentence and \
+  never a single chapter covering the entire meeting unless it's too short to have \
+  distinct topics. Give each chapter a short (3-6 word) "title" describing what's \
+  discussed starting there. Each transcript line is prefixed with its elapsed time \
+  as "[mm:ss]" - set "start_time_seconds" to that marker's total seconds \
+  (minutes*60 + seconds) from the line where the topic begins. Only ever use a \
+  timestamp that actually appears in the transcript - never invent or interpolate one.
 """
 
 
@@ -135,16 +156,75 @@ def _estimate_tokens(text: str) -> int:
     return len(text) // 3
 
 
-def build_transcript_text(meeting_id: int, session) -> str:
-    segments = (
-        session.query(TranscriptSegment)
-        .filter_by(meeting_id=meeting_id)
-        .order_by(TranscriptSegment.start_timestamp)
-        .all()
-    )
+def _segment_elapsed_seconds(segment_start_timestamp: float, meeting_start_time) -> float | None:
+    """Python mirror of frontend/src/lib/format.ts's segmentElapsedSeconds() -
+    both need to agree on what "elapsed seconds from meeting start" means for
+    a segment, since chapter timestamps snapped here (in seconds) are later
+    fed straight to the same AudioPlayer.seekTo() the frontend's click-to-seek
+    uses. Returns None (never 0) when there's nothing to anchor against."""
+    if meeting_start_time is None:
+        return None
+    elapsed = segment_start_timestamp - meeting_start_time.timestamp()
+    return elapsed if elapsed >= 0 else None
+
+
+def _format_mmss(seconds: float) -> str:
+    total = max(0, round(seconds))
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def build_transcript_text(meeting: Meeting, segments: list[TranscriptSegment]) -> str:
+    """Each line is prefixed with its elapsed "[mm:ss]" start time (falling
+    back to a bare speaker/text line when there's no meeting.start_time to
+    anchor against) so Groq's proposed chapter timestamps can be expressed in
+    terms of real, visible transcript moments - see _snap_chapters(), which
+    still never trusts those proposed timestamps as exact without snapping
+    them to an actual segment's start time."""
     if not segments:
         return ""
-    return "\n".join(f"[{seg.speaker_label}]: {seg.text}" for seg in segments)
+    lines = []
+    for seg in segments:
+        elapsed = _segment_elapsed_seconds(seg.start_timestamp, meeting.start_time)
+        if elapsed is not None:
+            lines.append(f"[{_format_mmss(elapsed)}] {seg.speaker_label}: {seg.text}")
+        else:
+            lines.append(f"{seg.speaker_label}: {seg.text}")
+    return "\n".join(lines)
+
+
+def _snap_chapters(proposed: list[dict], anchors: list[float]) -> list[dict]:
+    """Groq's proposed chapter start times are model output, not ground
+    truth - each one gets snapped here to the closest REAL transcript
+    segment's elapsed start time (`anchors`, from _segment_elapsed_seconds())
+    so every stored chapter genuinely corresponds to an actual transcript
+    moment, never a hallucinated or interpolated one. Chapters with no title
+    or a non-numeric timestamp are dropped; the result is sorted by time, and
+    any chapters that end up sharing a snapped timestamp after sorting are
+    deduplicated (first one wins). Returns [] when there are no anchors to
+    snap against at all (e.g. meeting.start_time missing) rather than storing
+    ungrounded timestamps."""
+    if not anchors:
+        return []
+
+    snapped = []
+    for chapter in proposed:
+        title = str(chapter.get("title") or "").strip()
+        raw = chapter.get("start_time_seconds")
+        if not title or not isinstance(raw, (int, float)):
+            continue
+        closest = min(anchors, key=lambda a: abs(a - raw))
+        snapped.append({"title": title, "start_time_seconds": closest})
+
+    snapped.sort(key=lambda c: c["start_time_seconds"])
+
+    deduped = []
+    seen_times = set()
+    for chapter in snapped:
+        if chapter["start_time_seconds"] in seen_times:
+            continue
+        seen_times.add(chapter["start_time_seconds"])
+        deduped.append(chapter)
+    return deduped
 
 
 def call_groq(transcript_text: str, api_key: str, retry_hint: str | None = None):
@@ -193,7 +273,7 @@ def parse_groq_response(raw_response: dict) -> dict:
     return json.loads(content), content
 
 
-REQUIRED_KEYS = {"overview", "key_points", "decisions", "action_items"}
+REQUIRED_KEYS = {"overview", "key_points", "decisions", "action_items", "chapters"}
 
 
 def validate_shape(parsed: dict) -> str | None:
@@ -208,6 +288,11 @@ def validate_shape(parsed: dict) -> str | None:
     for item in parsed["action_items"]:
         if not isinstance(item, dict) or "description" not in item or "assignee" not in item:
             return "each action_items entry must have description and assignee"
+    if not isinstance(parsed["chapters"], list):
+        return "chapters must be an array"
+    for chapter in parsed["chapters"]:
+        if not isinstance(chapter, dict) or "title" not in chapter or "start_time_seconds" not in chapter:
+            return "each chapters entry must have title and start_time_seconds"
     return None
 
 
@@ -253,6 +338,7 @@ def save_summary(session, meeting_id: int, parsed: dict) -> int:
             overview_text=parsed["overview"],
             key_points=parsed["key_points"],
             decisions=parsed["decisions"],
+            chapters=parsed["chapters"],
         )
     )
     for item in parsed["action_items"]:
@@ -282,9 +368,16 @@ def summarize(meeting_id: int) -> SummarizeResult:
 
         print(f"Summarizing meeting id={meeting_id} ({meeting.platform}/{meeting.native_meeting_id}, status={meeting.status!r})...")
 
-        transcript_text = build_transcript_text(meeting_id, session)
-        if not transcript_text:
+        segments = (
+            session.query(TranscriptSegment)
+            .filter_by(meeting_id=meeting_id)
+            .order_by(TranscriptSegment.start_timestamp)
+            .all()
+        )
+        if not segments:
             raise NoTranscriptError(f"meeting id={meeting_id} has no transcript_segments. Nothing to summarize.")
+
+        transcript_text = build_transcript_text(meeting, segments)
 
         estimated_tokens = _estimate_tokens(transcript_text)
         print(f"Transcript: {len(transcript_text)} chars, ~{estimated_tokens} tokens "
@@ -299,6 +392,13 @@ def summarize(meeting_id: int) -> SummarizeResult:
         parsed = get_structured_summary(transcript_text, api_key)
         print("Groq API call succeeded and returned a valid structured response.")
 
+        anchors = [
+            elapsed
+            for seg in segments
+            if (elapsed := _segment_elapsed_seconds(seg.start_timestamp, meeting.start_time)) is not None
+        ]
+        parsed["chapters"] = _snap_chapters(parsed["chapters"], anchors)
+
         action_item_count = save_summary(session, meeting_id, parsed)
     except Exception:
         session.rollback()
@@ -312,6 +412,7 @@ def summarize(meeting_id: int) -> SummarizeResult:
         key_points=parsed["key_points"],
         decisions=parsed["decisions"],
         action_items=parsed["action_items"],
+        chapters=parsed["chapters"],
     )
 
 
@@ -328,7 +429,7 @@ def main() -> None:
 
     print(f"\nOverview: {result.overview}")
     print(f"Key points: {len(result.key_points)}, Decisions: {len(result.decisions)}, "
-          f"Action items: {len(result.action_items)}")
+          f"Action items: {len(result.action_items)}, Chapters: {len(result.chapters)}")
     print(f"Saved to database for meeting_id={result.meeting_id}.")
 
 

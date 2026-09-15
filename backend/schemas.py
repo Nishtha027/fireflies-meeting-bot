@@ -46,10 +46,16 @@ class TranscriptSegmentOut(BaseModel):
     end_timestamp: float
 
 
+class ChapterOut(BaseModel):
+    title: str
+    start_time_seconds: float
+
+
 class SummaryOut(BaseModel):
     overview_text: str
     key_points: list[str]
     decisions: list[str]
+    chapters: list[ChapterOut]
 
 
 class ActionItemOut(BaseModel):
@@ -87,6 +93,7 @@ class SummarizeResponse(BaseModel):
     key_points: list[str]
     decisions: list[str]
     action_items: list[ActionItemOut]
+    chapters: list[ChapterOut]
 
 
 class SearchResult(BaseModel):

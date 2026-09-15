@@ -32,10 +32,16 @@ export interface TranscriptSegment {
   end_timestamp: number;
 }
 
+export interface Chapter {
+  title: string;
+  start_time_seconds: number;
+}
+
 export interface Summary {
   overview_text: string;
   key_points: string[];
   decisions: string[];
+  chapters: Chapter[];
 }
 
 export interface ActionItem {
@@ -73,6 +79,7 @@ export interface SummarizeResponse {
   key_points: string[];
   decisions: string[];
   action_items: ActionItem[];
+  chapters: Chapter[];
 }
 
 export interface SearchResult {
