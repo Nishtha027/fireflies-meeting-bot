@@ -60,6 +60,7 @@ function NoMatchesState() {
 
 interface MeetingGroup {
   meetingId: number;
+  meetingTitle: string | null;
   platform: string;
   nativeMeetingId: string;
   meetingStartTime: string | null;
@@ -125,7 +126,7 @@ function MeetingGroupSection({
           href={`/meetings/${group.meetingId}`}
           className="font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
         >
-          {meetingTitle(group.platform, group.nativeMeetingId)}
+          {meetingTitle(group.meetingTitle, group.platform, group.nativeMeetingId)}
         </Link>
         <span className="text-sm text-muted-foreground">
           {formatDateTime(group.meetingStartTime)}
@@ -237,6 +238,7 @@ export default function TasksPage() {
       if (!group) {
         group = {
           meetingId: item.meeting_id,
+          meetingTitle: item.meeting_title,
           platform: item.platform,
           nativeMeetingId: item.native_meeting_id,
           meetingStartTime: item.meeting_start_time,

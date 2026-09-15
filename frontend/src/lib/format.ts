@@ -27,8 +27,16 @@ export function formatPlatform(platform: string): string {
   );
 }
 
-/** We don't have a real title field yet - build a readable label from what we do have. */
-export function meetingTitle(platform: string, nativeMeetingId: string): string {
+/** The user's own title if they set one, otherwise a readable fallback
+ * built from platform + code - the single place this fallback logic lives,
+ * so every meeting-name display (cards, detail page, search, chat
+ * citations, task links) stays consistent. */
+export function meetingTitle(
+  title: string | null | undefined,
+  platform: string,
+  nativeMeetingId: string,
+): string {
+  if (title && title.trim()) return title;
   return `${formatPlatform(platform)} · ${nativeMeetingId}`;
 }
 

@@ -7,6 +7,7 @@ import { ApiError, NetworkError, searchMeetings } from "@/lib/api";
 import type { MeetingListItem, SearchResult } from "@/lib/types";
 import { ErrorState } from "@/components/ErrorState";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
+import { ParticipantFilter } from "@/components/ParticipantFilter";
 import { MeetingCard, MeetingCardSkeleton } from "@/components/MeetingCard";
 import {
   SearchResultCard,
@@ -18,21 +19,32 @@ const MIN_QUERY_LENGTH = 2;
 function toMeetingListItem(result: SearchResult): MeetingListItem {
   return {
     id: result.meeting_id,
+    title: result.title,
     platform: result.platform,
     native_meeting_id: result.native_meeting_id,
     start_time: result.start_time,
     end_time: result.end_time,
     status: result.status,
     overview_preview: result.snippet,
+    // Search results don't carry per-meeting participant lists (that'd mean
+    // an extra aggregation per result row) - the card just renders no
+    // avatars for these, same as a meeting with zero known speakers.
+    participants: [],
   };
 }
 
-function describeFilters(q: string, fromDate: string, toDate: string): string {
+function describeFilters(
+  q: string,
+  fromDate: string,
+  toDate: string,
+  participant: string,
+): string {
   const parts: string[] = [];
   if (q) parts.push(`"${q}"`);
   if (fromDate && toDate) parts.push(`${fromDate} to ${toDate}`);
   else if (fromDate) parts.push(`from ${fromDate} onward`);
   else if (toDate) parts.push(`through ${toDate}`);
+  if (participant) parts.push(`participant: ${participant}`);
   return parts.join(" · ");
 }
 
@@ -44,8 +56,8 @@ function NeutralPlaceholder() {
         Search by keyword, filter by date, or both
       </p>
       <p className="max-w-sm text-sm text-muted-foreground">
-        Type something above, pick a date range below, or combine both - no
-        keyword required.
+        Type something above, pick a date range or participant below, or
+        combine them - no keyword required.
       </p>
     </div>
   );
@@ -58,7 +70,7 @@ function NoResults({ description }: { description: string }) {
         No meetings match {description}
       </p>
       <p className="max-w-sm text-sm text-muted-foreground">
-        Try a different word, phrase, or date range.
+        Try a different word, phrase, date range, or participant.
       </p>
     </div>
   );
@@ -70,10 +82,12 @@ function SearchPageContent() {
   const q = (searchParams.get("q") ?? "").trim();
   const fromDate = searchParams.get("from") ?? "";
   const toDate = searchParams.get("to") ?? "";
+  const participant = searchParams.get("participant") ?? "";
 
   const hasKeyword = q.length >= MIN_QUERY_LENGTH;
   const hasDateFilter = fromDate !== "" || toDate !== "";
-  const hasAnyFilter = hasKeyword || hasDateFilter;
+  const hasParticipantFilter = participant !== "";
+  const hasAnyFilter = hasKeyword || hasDateFilter || hasParticipantFilter;
   const invalidRange = fromDate !== "" && toDate !== "" && fromDate > toDate;
 
   const [results, setResults] = useState<SearchResult[] | null>(null);
@@ -81,7 +95,7 @@ function SearchPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
-  const filterKey = `${q}|${fromDate}|${toDate}`;
+  const filterKey = `${q}|${fromDate}|${toDate}|${participant}`;
 
   useEffect(() => {
     if (!hasAnyFilter || invalidRange) return;
@@ -90,6 +104,7 @@ function SearchPageContent() {
       q: hasKeyword ? q : undefined,
       fromDate: fromDate || undefined,
       toDate: toDate || undefined,
+      participant: participant || undefined,
     })
       .then((data) => {
         if (cancelled) return;
@@ -115,6 +130,7 @@ function SearchPageContent() {
     q,
     fromDate,
     toDate,
+    participant,
     hasKeyword,
     hasAnyFilter,
     invalidRange,
@@ -126,20 +142,37 @@ function SearchPageContent() {
     setReloadToken((t) => t + 1);
   };
 
-  const handleDateChange = (range: { fromDate: string; toDate: string }) => {
+  // Preserves every OTHER active filter (q, dates, participant) while
+  // updating just the one the caller changed - shared by the date range and
+  // participant filter handlers below so changing one never silently drops
+  // the other.
+  const pushFilters = (next: {
+    fromDate: string;
+    toDate: string;
+    participant: string;
+  }) => {
     const usp = new URLSearchParams();
     if (q) usp.set("q", q);
-    if (range.fromDate) usp.set("from", range.fromDate);
-    if (range.toDate) usp.set("to", range.toDate);
+    if (next.fromDate) usp.set("from", next.fromDate);
+    if (next.toDate) usp.set("to", next.toDate);
+    if (next.participant) usp.set("participant", next.participant);
     const qs = usp.toString();
     router.replace(qs ? `/search?${qs}` : "/search", { scroll: false });
+  };
+
+  const handleDateChange = (range: { fromDate: string; toDate: string }) => {
+    pushFilters({ fromDate: range.fromDate, toDate: range.toDate, participant });
+  };
+
+  const handleParticipantChange = (nextParticipant: string) => {
+    pushFilters({ fromDate, toDate, participant: nextParticipant });
   };
 
   // A new filter combination is in flight while we still have results from
   // the previous one - keep them visible with a subtle indicator instead of
   // flashing a full skeleton on every change.
   const isLoading = hasAnyFilter && filterKey !== lastFilterKey && !error;
-  const description = describeFilters(q, fromDate, toDate);
+  const description = describeFilters(q, fromDate, toDate, participant);
 
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
@@ -154,11 +187,15 @@ function SearchPageContent() {
         </p>
       </div>
 
-      <div className="mb-8">
+      <div className="mb-8 flex flex-wrap items-center gap-x-4 gap-y-3">
         <DateRangeFilter
           fromDate={fromDate}
           toDate={toDate}
           onChange={handleDateChange}
+        />
+        <ParticipantFilter
+          participant={participant}
+          onChange={handleParticipantChange}
         />
       </div>
 

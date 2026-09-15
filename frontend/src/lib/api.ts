@@ -15,6 +15,7 @@ import type {
   MeetingAnalytics,
   MeetingDetail,
   MeetingListItem,
+  MeetingTitleUpdateResponse,
   MeResponse,
   SearchResult,
   SummarizeResponse,
@@ -103,6 +104,21 @@ export function deleteMeeting(id: number): Promise<DeleteMeetingResponse> {
   return request<DeleteMeetingResponse>(`/meetings/${id}`, { method: "DELETE" });
 }
 
+export function updateMeetingTitle(
+  id: number,
+  title: string | null,
+): Promise<MeetingTitleUpdateResponse> {
+  return request<MeetingTitleUpdateResponse>(`/meetings/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+}
+
+export function getParticipants(): Promise<string[]> {
+  return request<string[]>("/meetings/participants");
+}
+
 export function ingestMeeting(id: number): Promise<IngestResponse> {
   return request<IngestResponse>(`/meetings/${id}/ingest`, { method: "POST" });
 }
@@ -140,6 +156,7 @@ export interface SearchParams {
   q?: string;
   fromDate?: string;
   toDate?: string;
+  participant?: string;
 }
 
 export function searchMeetings(params: SearchParams): Promise<SearchResult[]> {
@@ -147,6 +164,7 @@ export function searchMeetings(params: SearchParams): Promise<SearchResult[]> {
   if (params.q) usp.set("q", params.q);
   if (params.fromDate) usp.set("from_date", params.fromDate);
   if (params.toDate) usp.set("to_date", params.toDate);
+  if (params.participant) usp.set("participant", params.participant);
   return request<SearchResult[]>(`/search?${usp.toString()}`);
 }
 

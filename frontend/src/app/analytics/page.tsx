@@ -168,7 +168,7 @@ export default function AnalyticsPage() {
                           }`}
                         >
                           <p className="text-sm font-medium text-foreground">
-                            {meetingTitle(m.platform, m.native_meeting_id)}
+                            {meetingTitle(m.title, m.platform, m.native_meeting_id)}
                           </p>
                           <p className="mt-0.5 text-xs text-muted-foreground">
                             {formatDateTime(m.start_time)}
@@ -182,7 +182,7 @@ export default function AnalyticsPage() {
                   <div className="rounded-xl border border-border bg-card p-6 lg:col-span-2">
                     {selectedMeeting && (
                       <h3 className="mb-4 text-sm font-semibold text-foreground">
-                        {meetingTitle(selectedMeeting.platform, selectedMeeting.native_meeting_id)}
+                        {meetingTitle(selectedMeeting.title, selectedMeeting.platform, selectedMeeting.native_meeting_id)}
                       </h3>
                     )}
 

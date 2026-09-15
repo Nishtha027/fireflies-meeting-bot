@@ -4,6 +4,7 @@ import { formatDateTime, meetingTitle } from "@/lib/format";
 import { HighlightedSnippet } from "./HighlightedSnippet";
 
 const FIELD_LABELS: Record<string, string> = {
+  title: "Title",
   summary: "Summary",
   key_point: "Key point",
   decision: "Decision",
@@ -18,7 +19,7 @@ export function SearchResultCard({ result }: { result: SearchResult }) {
     >
       <div className="flex items-start justify-between gap-3">
         <h3 className="font-semibold text-foreground">
-          {meetingTitle(result.platform, result.native_meeting_id)}
+          {meetingTitle(result.title, result.platform, result.native_meeting_id)}
         </h3>
         <span className="flex-shrink-0 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
           {result.matched_field

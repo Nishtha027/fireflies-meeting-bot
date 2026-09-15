@@ -15,7 +15,7 @@ export function ChatSourceChip({ source }: { source: ChatSource }) {
     >
       <div className="flex items-center justify-between gap-2">
         <p className="truncate text-xs font-semibold text-foreground">
-          {meetingTitle(source.platform, source.native_meeting_id)}
+          {meetingTitle(source.meeting_title, source.platform, source.native_meeting_id)}
         </p>
         <span className="flex-shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
           {CHUNK_TYPE_LABELS[source.chunk_type] ?? source.chunk_type}

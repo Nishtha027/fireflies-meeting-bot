@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { Check, Pencil, Trash2, X } from "lucide-react";
 import {
   ApiError,
   deleteMeeting,
@@ -13,6 +13,7 @@ import {
   NetworkError,
   stopRecording,
   summarizeMeeting,
+  updateMeetingTitle,
 } from "@/lib/api";
 import { isTerminalCaptureStatus } from "@/lib/captureStatus";
 import type { MeetingAnalytics, MeetingDetail } from "@/lib/types";
@@ -36,6 +37,116 @@ const MAX_STOP_POLL_ATTEMPTS = 15;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Click-to-edit title, in place - editing the raw title.title (which may
+ * be null/empty), not the display fallback string, so saving an emptied
+ * field correctly clears the title back to null rather than persisting the
+ * "platform · code" fallback text as a literal title. */
+function EditableTitle({
+  meetingId,
+  displayTitle,
+  rawTitle,
+  onSaved,
+}: {
+  meetingId: number;
+  displayTitle: string;
+  rawTitle: string | null;
+  onSaved: (title: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function startEditing() {
+    setDraft(rawTitle ?? "");
+    setError(null);
+    setEditing(true);
+  }
+
+  function cancel() {
+    setEditing(false);
+    setError(null);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await updateMeetingTitle(meetingId, draft.trim() || null);
+      onSaved(result.title);
+      setEditing(false);
+    } catch (err) {
+      if (err instanceof NetworkError || err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError("Something went wrong saving the title.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          {displayTitle}
+        </h1>
+        <button
+          type="button"
+          onClick={startEditing}
+          aria-label="Edit meeting title"
+          title="Edit title"
+          className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+            if (e.key === "Escape") cancel();
+          }}
+          placeholder={displayTitle}
+          autoFocus
+          disabled={saving}
+          className="w-full max-w-md rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xl font-semibold text-foreground focus:border-indigo-300 focus:bg-card focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          aria-label="Save title"
+          title="Save"
+          className="rounded-lg p-1.5 text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+        >
+          <Check className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={cancel}
+          disabled={saving}
+          aria-label="Cancel editing title"
+          title="Cancel"
+          className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      {error && <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  );
 }
 
 export default function MeetingDetailPage() {
@@ -246,12 +357,15 @@ export default function MeetingDetailPage() {
       </Link>
 
       <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0 flex-1">
           {meeting ? (
             <>
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                {meetingTitle(meeting.platform, meeting.native_meeting_id)}
-              </h1>
+              <EditableTitle
+                meetingId={meeting.id}
+                displayTitle={meetingTitle(meeting.title, meeting.platform, meeting.native_meeting_id)}
+                rawTitle={meeting.title}
+                onSaved={(title) => setMeeting({ ...meeting, title })}
+              />
               <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
                 <span>{formatDateTime(meeting.start_time)}</span>
                 {duration && (

@@ -14,12 +14,29 @@ class HealthResponse(BaseModel):
 
 class MeetingListItem(BaseModel):
     id: int
+    title: str | None
     platform: str
     native_meeting_id: str
     start_time: datetime | None
     end_time: datetime | None
     status: str
     overview_preview: str | None
+    participants: list[str]
+
+
+class MeetingTitleUpdateRequest(BaseModel):
+    """Body for PATCH /meetings/{id}. An empty/whitespace-only string is
+    normalized to null server-side, reverting the display back to the
+    platform/code fallback - the frontend doesn't need to special-case
+    "clearing" the title as a different request shape."""
+
+    title: str | None = Field(default=None, max_length=500)
+
+
+class MeetingTitleUpdateResponse(BaseModel):
+    success: bool
+    meeting_id: int
+    title: str | None
 
 
 class TranscriptSegmentOut(BaseModel):
@@ -42,12 +59,14 @@ class ActionItemOut(BaseModel):
 
 class MeetingDetail(BaseModel):
     id: int
+    title: str | None
     platform: str
     native_meeting_id: str
     vexa_meeting_id: int | None
     start_time: datetime | None
     end_time: datetime | None
     status: str
+    participants: list[str]
     transcript: list[TranscriptSegmentOut]
     summary: SummaryOut | None
     action_items: list[ActionItemOut]
@@ -81,6 +100,7 @@ class SearchResult(BaseModel):
     instead of the highlighted-snippet search result style."""
 
     meeting_id: int
+    title: str | None
     platform: str
     native_meeting_id: str
     start_time: datetime | None
@@ -102,6 +122,7 @@ class ActionItemWithMeeting(BaseModel):
     generated_at: datetime
     completed: bool
     meeting_id: int
+    meeting_title: str | None
     platform: str
     native_meeting_id: str
     meeting_start_time: datetime | None
@@ -139,6 +160,7 @@ class ChatRequest(BaseModel):
 
 class ChatSourceOut(BaseModel):
     meeting_id: int
+    meeting_title: str | None
     native_meeting_id: str
     platform: str
     start_time: datetime | None

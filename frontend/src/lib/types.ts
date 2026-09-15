@@ -9,12 +9,20 @@ export interface HealthResponse {
 
 export interface MeetingListItem {
   id: number;
+  title: string | null;
   platform: string;
   native_meeting_id: string;
   start_time: string | null;
   end_time: string | null;
   status: string;
   overview_preview: string | null;
+  participants: string[];
+}
+
+export interface MeetingTitleUpdateResponse {
+  success: boolean;
+  meeting_id: number;
+  title: string | null;
 }
 
 export interface TranscriptSegment {
@@ -37,12 +45,14 @@ export interface ActionItem {
 
 export interface MeetingDetail {
   id: number;
+  title: string | null;
   platform: string;
   native_meeting_id: string;
   vexa_meeting_id: number | null;
   start_time: string | null;
   end_time: string | null;
   status: string;
+  participants: string[];
   transcript: TranscriptSegment[];
   summary: Summary | null;
   action_items: ActionItem[];
@@ -67,6 +77,7 @@ export interface SummarizeResponse {
 
 export interface SearchResult {
   meeting_id: number;
+  title: string | null;
   platform: string;
   native_meeting_id: string;
   start_time: string | null;
@@ -84,6 +95,7 @@ export interface ActionItemWithMeeting {
   generated_at: string;
   completed: boolean;
   meeting_id: number;
+  meeting_title: string | null;
   platform: string;
   native_meeting_id: string;
   meeting_start_time: string | null;
@@ -91,6 +103,7 @@ export interface ActionItemWithMeeting {
 
 export interface ChatSource {
   meeting_id: number;
+  meeting_title: string | null;
   native_meeting_id: string;
   platform: string;
   start_time: string | null;

@@ -105,6 +105,8 @@ from schemas import (
     MeetingAnalyticsOut,
     MeetingDetail,
     MeetingListItem,
+    MeetingTitleUpdateRequest,
+    MeetingTitleUpdateResponse,
     MeResponse,
     RegisterRequest,
     SearchResult,
@@ -250,6 +252,40 @@ def me(user: User | None = Depends(get_current_user)):
     )
 
 
+def _participants_by_meeting(db: Session, user_id: int) -> dict[int, list[str]]:
+    """One aggregated query (not N+1) across every meeting user_id owns:
+    every distinct (meeting_id, speaker_label) pair, grouped in Python into
+    a per-meeting list. "Unknown Speaker" is not special-cased, consistent
+    with analytics.py's talk-time aggregation."""
+    rows = (
+        db.query(TranscriptSegment.meeting_id, TranscriptSegment.speaker_label)
+        .join(Meeting, TranscriptSegment.meeting_id == Meeting.id)
+        .filter(Meeting.user_id == user_id)
+        .distinct()
+        .all()
+    )
+    by_meeting: dict[int, list[str]] = {}
+    for meeting_id, speaker_label in rows:
+        by_meeting.setdefault(meeting_id, []).append(speaker_label)
+    for labels in by_meeting.values():
+        labels.sort()
+    return by_meeting
+
+
+def _meeting_participants(db: Session, meeting_id: int) -> list[str]:
+    """Same distinct-speaker-label logic as _participants_by_meeting(), but
+    scoped to a single already-owned meeting (GET /meetings/{id}) - a
+    targeted one-meeting query here isn't the N+1 pattern that matters for
+    GET /meetings' list of many meetings."""
+    rows = (
+        db.query(TranscriptSegment.speaker_label)
+        .filter(TranscriptSegment.meeting_id == meeting_id)
+        .distinct()
+        .all()
+    )
+    return sorted(label for (label,) in rows)
+
+
 @protected.get("/meetings", response_model=list[MeetingListItem])
 def list_meetings(current_user: User = Depends(require_auth), db: Session = Depends(get_db)):
     meetings = (
@@ -258,6 +294,7 @@ def list_meetings(current_user: User = Depends(require_auth), db: Session = Depe
         .order_by(Meeting.start_time.desc().nullslast())
         .all()
     )
+    participants_by_meeting = _participants_by_meeting(db, current_user.id)
 
     items = []
     for meeting in meetings:
@@ -266,15 +303,58 @@ def list_meetings(current_user: User = Depends(require_auth), db: Session = Depe
         items.append(
             MeetingListItem(
                 id=meeting.id,
+                title=meeting.title,
                 platform=meeting.platform,
                 native_meeting_id=meeting.native_meeting_id,
                 start_time=meeting.start_time,
                 end_time=meeting.end_time,
                 status=meeting.status,
                 overview_preview=preview,
+                participants=participants_by_meeting.get(meeting.id, []),
             )
         )
     return items
+
+
+@protected.get("/meetings/participants", response_model=list[str])
+def list_participants(current_user: User = Depends(require_auth), db: Session = Depends(get_db)):
+    """Distinct participant names across the current user's own meetings
+    ONLY - same per-user privacy boundary as every other endpoint (the join
+    filters on Meeting.user_id, never returning another account's speaker
+    labels). Powers the /search page's participant filter dropdown.
+
+    Registered before GET /meetings/{meeting_id} below: FastAPI/Starlette
+    matches routes in declaration order, and {meeting_id} has no `:int`
+    path convertor, so "participants" would otherwise be swallowed by that
+    route first and rejected as an invalid int rather than reaching here.
+    """
+    rows = (
+        db.query(TranscriptSegment.speaker_label)
+        .join(Meeting, TranscriptSegment.meeting_id == Meeting.id)
+        .filter(Meeting.user_id == current_user.id)
+        .distinct()
+        .all()
+    )
+    return sorted({label for (label,) in rows})
+
+
+@protected.patch("/meetings/{meeting_id}", response_model=MeetingTitleUpdateResponse)
+def update_meeting_title(
+    payload: MeetingTitleUpdateRequest,
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    meeting = db.get(Meeting, meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+
+    title = payload.title.strip() if payload.title else None
+    meeting.title = title or None
+    db.commit()
+    db.refresh(meeting)
+
+    return MeetingTitleUpdateResponse(success=True, meeting_id=meeting.id, title=meeting.title)
 
 
 @protected.get("/action-items", response_model=list[ActionItemWithMeeting])
@@ -296,6 +376,7 @@ def list_action_items(current_user: User = Depends(require_auth), db: Session = 
             generated_at=item.generated_at,
             completed=item.completed,
             meeting_id=meeting.id,
+            meeting_title=meeting.title,
             platform=meeting.platform,
             native_meeting_id=meeting.native_meeting_id,
             meeting_start_time=meeting.start_time,
@@ -448,17 +529,20 @@ def update_action_item(
     )
 
 
-# Full-text search across, for each meeting: its summary overview, key
-# points, decisions, and every transcript segment. Computed live per request
-# (no tsvector column/GIN index) since the dataset is small - see the final
-# report for when that would be worth adding.
+# Full-text search across, for each meeting: its title, summary overview,
+# key points, decisions, and every transcript segment. Computed live per
+# request (no tsvector column/GIN index) since the dataset is small - see
+# the final report for when that would be worth adding.
 #
 # Each field is unioned into a common (meeting_id, field, content) shape,
 # ranked with ts_rank_cd, then reduced to one row per meeting (DISTINCT ON)
 # so results are grouped by meeting rather than one row per matching
-# segment. Ties (common for short, similarly-sized fields under
-# ts_rank_cd's default, non-length-normalized scoring) are broken toward
-# curated summary content over raw transcript utterances.
+# segment. A title match's rank is boosted (x4) over every other field - a
+# deliberately chosen title is the most explicit match signal there is, so
+# it should outrank a same-scoring transcript/summary hit, not just win a
+# tie. Ties (common for short, similarly-sized fields under ts_rank_cd's
+# default, non-length-normalized scoring) are broken toward title, then
+# curated summary content, over raw transcript utterances.
 SEARCH_SQL = text("""
     WITH candidates AS (
         SELECT s.meeting_id, 'summary' AS field, s.overview_text AS content
@@ -481,6 +565,12 @@ SEARCH_SQL = text("""
 
         SELECT ts.meeting_id, 'transcript' AS field, ts.text AS content
         FROM transcript_segments ts
+
+        UNION ALL
+
+        SELECT tm.id AS meeting_id, 'title' AS field, tm.title AS content
+        FROM meetings tm
+        WHERE tm.title IS NOT NULL AND tm.title <> ''
     ),
     query AS (
         SELECT websearch_to_tsquery('english', :q) AS tsq
@@ -489,7 +579,8 @@ SEARCH_SQL = text("""
         SELECT
             c.meeting_id,
             c.field,
-            ts_rank_cd(to_tsvector('english', c.content), q.tsq) AS rank,
+            ts_rank_cd(to_tsvector('english', c.content), q.tsq)
+                * CASE c.field WHEN 'title' THEN 4.0 ELSE 1.0 END AS rank,
             ts_headline(
                 'english', c.content, q.tsq,
                 'StartSel=⟪, StopSel=⟫, MaxFragments=1, MaxWords=30, MinWords=10'
@@ -504,6 +595,7 @@ SEARCH_SQL = text("""
             meeting_id,
             rank DESC,
             CASE field
+                WHEN 'title' THEN 0
                 WHEN 'decision' THEN 1
                 WHEN 'key_point' THEN 2
                 WHEN 'summary' THEN 3
@@ -512,6 +604,7 @@ SEARCH_SQL = text("""
     )
     SELECT
         m.id AS meeting_id,
+        m.title,
         m.platform,
         m.native_meeting_id,
         m.start_time,
@@ -525,19 +618,27 @@ SEARCH_SQL = text("""
     WHERE m.user_id = :user_id
       AND (CAST(:from_date AS date) IS NULL OR m.start_time >= CAST(:from_date AS date))
       AND (CAST(:to_date AS date) IS NULL OR m.start_time < CAST(:to_date AS date) + INTERVAL '1 day')
+      AND (CAST(:participant AS text) IS NULL OR EXISTS (
+          SELECT 1 FROM transcript_segments pts
+          WHERE pts.meeting_id = m.id AND pts.speaker_label = CAST(:participant AS text)
+      ))
     ORDER BY b.rank DESC
 """)
 
-# Pure date-range browse, no keyword: same response shape as a keyword
-# match (so the frontend can share result-rendering plumbing), but sorted
-# chronologically instead of by relevance, with the summary's overview
-# (truncated the same way /meetings already does for overview_preview) as
-# the snippet and matched_field left null - the frontend uses that null to
-# render these with the plain MeetingCard instead of a highlighted-snippet
-# card, since there's no keyword match to highlight.
-DATE_ONLY_SQL = text("""
+# No keyword: same response shape as a keyword match (so the frontend can
+# share result-rendering plumbing), but sorted chronologically instead of by
+# relevance, with the summary's overview (truncated the same way /meetings
+# already does for overview_preview) as the snippet and matched_field left
+# null - the frontend uses that null to render these with the plain
+# MeetingCard instead of a highlighted-snippet card, since there's no
+# keyword match to highlight. Still supports date and/or participant
+# filtering (AND-combined) so "just filter by participant, no keyword" -
+# the participant-only case the frontend's filter dropdown supports - has
+# somewhere to go besides an empty result.
+BROWSE_SQL = text("""
     SELECT
         m.id AS meeting_id,
+        m.title,
         m.platform,
         m.native_meeting_id,
         m.start_time,
@@ -551,6 +652,10 @@ DATE_ONLY_SQL = text("""
     WHERE m.user_id = :user_id
       AND (CAST(:from_date AS date) IS NULL OR m.start_time >= CAST(:from_date AS date))
       AND (CAST(:to_date AS date) IS NULL OR m.start_time < CAST(:to_date AS date) + INTERVAL '1 day')
+      AND (CAST(:participant AS text) IS NULL OR EXISTS (
+          SELECT 1 FROM transcript_segments pts
+          WHERE pts.meeting_id = m.id AND pts.speaker_label = CAST(:participant AS text)
+      ))
     ORDER BY m.start_time DESC NULLS LAST
 """)
 
@@ -560,6 +665,7 @@ def search_meetings(
     q: str = Query(default=""),
     from_date: date | None = Query(default=None),
     to_date: date | None = Query(default=None),
+    participant: str | None = Query(default=None),
     current_user: User = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
@@ -570,21 +676,29 @@ def search_meetings(
         )
 
     query = q.strip()
+    participant_filter = participant.strip() if participant else None
     has_keyword = len(query) >= 2
     has_date_filter = from_date is not None or to_date is not None
+    has_participant_filter = bool(participant_filter)
 
-    if not has_keyword and not has_date_filter:
+    if not has_keyword and not has_date_filter and not has_participant_filter:
         return []
 
-    params = {"from_date": from_date, "to_date": to_date, "user_id": current_user.id}
+    params = {
+        "from_date": from_date,
+        "to_date": to_date,
+        "user_id": current_user.id,
+        "participant": participant_filter,
+    }
     if has_keyword:
         rows = db.execute(SEARCH_SQL, {**params, "q": query}).mappings().all()
     else:
-        rows = db.execute(DATE_ONLY_SQL, params).mappings().all()
+        rows = db.execute(BROWSE_SQL, params).mappings().all()
 
     return [
         SearchResult(
             meeting_id=row["meeting_id"],
+            title=row["title"],
             platform=row["platform"],
             native_meeting_id=row["native_meeting_id"],
             start_time=row["start_time"],
@@ -619,12 +733,14 @@ def get_meeting(
 
     return MeetingDetail(
         id=meeting.id,
+        title=meeting.title,
         platform=meeting.platform,
         native_meeting_id=meeting.native_meeting_id,
         vexa_meeting_id=meeting.vexa_meeting_id,
         start_time=meeting.start_time,
         end_time=meeting.end_time,
         status=meeting.status,
+        participants=_meeting_participants(db, meeting_id),
         transcript=[
             TranscriptSegmentOut(
                 speaker_label=seg.speaker_label,
@@ -908,7 +1024,11 @@ def trigger_embed_all(current_user: User = Depends(require_auth)):
 
 
 @protected.post("/chat", response_model=ChatResponse)
-def chat_endpoint(request: ChatRequest, current_user: User = Depends(require_auth)):
+def chat_endpoint(
+    request: ChatRequest,
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
     try:
         result = answer_question(request.question, current_user.id)
     except EmptyQuestionError as exc:
@@ -924,11 +1044,21 @@ def chat_endpoint(request: ChatRequest, current_user: User = Depends(require_aut
     except (GroqAPIError, ChatError) as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
+    # Titles aren't stored in Chroma's chunk metadata (that's frozen at
+    # embed time, and a rename shouldn't require re-embedding to show up
+    # here) - one batched lookup for every source meeting instead, not one
+    # query per source.
+    source_meeting_ids = {source.meeting_id for source in result.sources}
+    titles_by_meeting: dict[int, str | None] = dict(
+        db.query(Meeting.id, Meeting.title).filter(Meeting.id.in_(source_meeting_ids)).all()
+    )
+
     return ChatResponse(
         answer=result.answer,
         sources=[
             ChatSourceOut(
                 meeting_id=source.meeting_id,
+                meeting_title=titles_by_meeting.get(source.meeting_id),
                 native_meeting_id=source.native_meeting_id,
                 platform=source.platform,
                 start_time=source.start_time,
