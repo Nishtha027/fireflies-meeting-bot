@@ -115,6 +115,37 @@ ADMIN_TOKEN=<value from .env> ADMIN_API_URL=http://127.0.0.1:18057 \
   EMAIL=self-host@vexa.ai SCOPES=bot,tx ./bin/provision-token
 ```
 
+## Windows host setup: WSL2 mirrored networking (required)
+
+**Set this on any fresh Windows machine before relying on this stack —
+don't wait to discover the problem it prevents.** Create (or edit)
+`%UserProfile%\.wslconfig`:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+Then `wsl --shutdown` once to apply it (safe — Docker Desktop and every
+compose stack here restart automatically afterward, `restart:
+unless-stopped` policy).
+
+**Why:** on default WSL2 NAT networking, this laptop's Modern Standby sleep
+mode reliably broke the WSL2 VM's network state on resume — every `docker`
+command (and this app's connection to Postgres/Vexa) would hang
+indefinitely, with no recovery short of `wsl --shutdown` + a full Docker
+Desktop restart. Confirmed via Docker Desktop's own logs
+(`%LOCALAPPDATA%\Docker\log\host\electron-*.log`) across 4 separate
+incidents between 2026-09-12 and 2026-09-15: every one began within
+minutes (as little as 68 seconds) of the machine waking from sleep — not
+correlated with Windows Update or Docker Desktop's own auto-update, both
+independently checked and ruled out. Mirrored networking mode is
+Microsoft's own documented fix for WSL2 losing connectivity after
+sleep/resume; verified here (2026-09-16) with all four ports this project
+depends on (frontend `:3000`, backend `:8000`, Vexa gateway `:18056`, our
+Postgres `:5433`) plus a real Capture Meeting round-trip (bot join, record,
+stop, ingest) all behaving identically to pre-change behavior.
+
 ## Pinned version
 
 The submodule is pinned to commit `59e2c413a53479125b70b712ade12ab470d55512`
