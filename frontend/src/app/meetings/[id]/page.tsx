@@ -674,8 +674,12 @@ export default function MeetingDetailPage() {
 
           {meeting && meeting.summary && (
             <SummaryPanelContent
+              meetingId={meeting.id}
               summary={meeting.summary}
               actionItems={meeting.action_items}
+              onActionItemsChange={(action_items) =>
+                setMeeting({ ...meeting, action_items })
+              }
               activeChapterIndex={activeChapterIndex}
               onChapterClick={handleChapterClick}
             />

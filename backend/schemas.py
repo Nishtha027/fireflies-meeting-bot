@@ -59,8 +59,10 @@ class SummaryOut(BaseModel):
 
 
 class ActionItemOut(BaseModel):
+    id: int
     description: str
     assignee_guess: str | None
+    completed: bool
 
 
 class MeetingDetail(BaseModel):
@@ -135,12 +137,28 @@ class ActionItemWithMeeting(BaseModel):
     meeting_start_time: datetime | None
 
 
-class ActionItemUpdate(BaseModel):
-    """Body for PATCH /action-items/{id} - completion is the only thing a
-    user can change about an action item themselves (everything else is
-    AI-generated from the transcript)."""
+class ActionItemCreate(BaseModel):
+    """Body for POST /meetings/{id}/action-items - a manually-added action
+    item. assignee_guess is optional and, left blank, stores the same literal
+    "Unassigned" fallback the AI-generated path uses (see
+    summarize_meeting.py's SYSTEM_PROMPT) rather than NULL, so both origins
+    look identical to every downstream consumer (Tasks page grouping/filter
+    included)."""
 
-    completed: bool
+    description: str = Field(min_length=1, max_length=5000)
+    assignee_guess: str | None = Field(default=None, max_length=200)
+
+
+class ActionItemUpdate(BaseModel):
+    """Body for PATCH /action-items/{id} - a partial update, only send the
+    field(s) actually changing. `completed` alone is the existing
+    checkbox-toggle shape; `description`/`assignee_guess` let a manually-added
+    OR AI-generated item's text be corrected after the fact - both origins
+    go through this exact same path, no special-casing either one."""
+
+    completed: bool | None = None
+    description: str | None = Field(default=None, max_length=5000)
+    assignee_guess: str | None = Field(default=None, max_length=200)
 
 
 class EmbedResponse(BaseModel):
@@ -250,6 +268,11 @@ class MeResponse(BaseModel):
 class DeleteMeetingResponse(BaseModel):
     success: bool
     meeting_id: int
+
+
+class DeleteActionItemResponse(BaseModel):
+    success: bool
+    action_item_id: int
 
 
 class AccountUpdateRequest(BaseModel):

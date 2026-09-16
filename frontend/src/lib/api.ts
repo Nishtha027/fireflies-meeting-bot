@@ -1,5 +1,6 @@
 import type {
   AccountUpdateResponse,
+  ActionItem,
   ActionItemWithMeeting,
   AnalyticsOverview,
   AuthResponse,
@@ -8,6 +9,7 @@ import type {
   ChangePasswordResponse,
   ChatResponse,
   DeleteAccountResponse,
+  DeleteActionItemResponse,
   DeleteMeetingResponse,
   EmbedAllResponse,
   HealthResponse,
@@ -133,15 +135,41 @@ export function getActionItems(): Promise<ActionItemWithMeeting[]> {
   return request<ActionItemWithMeeting[]>("/action-items");
 }
 
+export function createActionItem(
+  meetingId: number,
+  description: string,
+  assigneeGuess: string | null,
+): Promise<ActionItem> {
+  return request<ActionItem>(`/meetings/${meetingId}/action-items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ description, assignee_guess: assigneeGuess }),
+  });
+}
+
+/** Partial update - only send the field(s) actually changing. Used both for
+ * the plain completion-toggle (`{ completed }`) and for editing an item's
+ * text (`{ description, assignee_guess }`) - same endpoint, same shape,
+ * whichever fields are present. */
+export interface ActionItemUpdatePayload {
+  completed?: boolean;
+  description?: string;
+  assignee_guess?: string | null;
+}
+
 export function updateActionItem(
   id: number,
-  completed: boolean,
+  payload: ActionItemUpdatePayload,
 ): Promise<ActionItemWithMeeting> {
   return request<ActionItemWithMeeting>(`/action-items/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ completed }),
+    body: JSON.stringify(payload),
   });
+}
+
+export function deleteActionItem(id: number): Promise<DeleteActionItemResponse> {
+  return request<DeleteActionItemResponse>(`/action-items/${id}`, { method: "DELETE" });
 }
 
 export function getMeetingAnalytics(id: number): Promise<MeetingAnalytics> {

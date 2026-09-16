@@ -81,6 +81,7 @@ from poller import start_scheduler, stop_scheduler
 from schemas import (
     AccountUpdateRequest,
     AccountUpdateResponse,
+    ActionItemCreate,
     ActionItemOut,
     ActionItemUpdate,
     ActionItemWithMeeting,
@@ -97,6 +98,7 @@ from schemas import (
     ChatSourceOut,
     DeleteAccountRequest,
     DeleteAccountResponse,
+    DeleteActionItemResponse,
     DeleteMeetingResponse,
     EmbedAllEntry,
     EmbedAllResponse,
@@ -360,6 +362,43 @@ def update_meeting_title(
     return MeetingTitleUpdateResponse(success=True, meeting_id=meeting.id, title=meeting.title)
 
 
+@protected.post("/meetings/{meeting_id}/action-items", response_model=ActionItemOut, status_code=201)
+def create_action_item(
+    payload: ActionItemCreate,
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """Manually adds an action item the AI missed. Goes through the exact
+    same ActionItem row/table as AI-generated ones - nothing downstream
+    (Tasks page, this meeting's own panel, PATCH/DELETE below) needs to know
+    or care which way a given item was created."""
+    meeting = db.get(Meeting, meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+
+    description = payload.description.strip()
+    if not description:
+        raise HTTPException(status_code=422, detail="description cannot be empty.")
+    assignee = payload.assignee_guess.strip() if payload.assignee_guess else ""
+
+    item = ActionItem(
+        meeting_id=meeting_id,
+        description=description,
+        assignee_guess=assignee or "Unassigned",
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    return ActionItemOut(
+        id=item.id,
+        description=item.description,
+        assignee_guess=item.assignee_guess,
+        completed=item.completed,
+    )
+
+
 @protected.get("/action-items", response_model=list[ActionItemWithMeeting])
 def list_action_items(current_user: User = Depends(require_auth), db: Session = Depends(get_db)):
     # One join, not N+1: the Tasks page needs every action item across every
@@ -515,7 +554,22 @@ def update_action_item(
     if meeting is None or meeting.user_id != current_user.id:
         raise HTTPException(status_code=404, detail=f"No action item with id={action_item_id}.")
 
-    item.completed = payload.completed
+    # exclude_unset, not just "is not None": completed is a plain bool once
+    # set, so a request that only wants to rename an item must be able to
+    # omit it entirely without that being mistaken for "set completed to
+    # None" - same reasoning for the other two fields.
+    updates = payload.model_dump(exclude_unset=True)
+    if updates.get("completed") is not None:
+        item.completed = updates["completed"]
+    if "description" in updates:
+        description = (updates["description"] or "").strip()
+        if not description:
+            raise HTTPException(status_code=422, detail="description cannot be empty.")
+        item.description = description
+    if "assignee_guess" in updates:
+        assignee = (updates["assignee_guess"] or "").strip()
+        item.assignee_guess = assignee or "Unassigned"
+
     db.commit()
     db.refresh(item)
 
@@ -526,10 +580,31 @@ def update_action_item(
         generated_at=item.generated_at,
         completed=item.completed,
         meeting_id=meeting.id,
+        meeting_title=meeting.title,
         platform=meeting.platform,
         native_meeting_id=meeting.native_meeting_id,
         meeting_start_time=meeting.start_time,
     )
+
+
+@protected.delete("/action-items/{action_item_id}", response_model=DeleteActionItemResponse)
+def delete_action_item(
+    action_item_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    item = db.get(ActionItem, action_item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"No action item with id={action_item_id}.")
+
+    meeting = db.get(Meeting, item.meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No action item with id={action_item_id}.")
+
+    db.delete(item)
+    db.commit()
+
+    return DeleteActionItemResponse(success=True, action_item_id=action_item_id)
 
 
 # Full-text search across, for each meeting: its title, summary overview,
@@ -732,7 +807,12 @@ def get_meeting(
         .all()
     )
     summary = db.query(Summary).filter_by(meeting_id=meeting_id).one_or_none()
-    action_items = db.query(ActionItem).filter_by(meeting_id=meeting_id).all()
+    action_items = (
+        db.query(ActionItem)
+        .filter_by(meeting_id=meeting_id)
+        .order_by(ActionItem.generated_at)
+        .all()
+    )
 
     return MeetingDetail(
         id=meeting.id,
@@ -764,7 +844,12 @@ def get_meeting(
             else None
         ),
         action_items=[
-            ActionItemOut(description=item.description, assignee_guess=item.assignee_guess)
+            ActionItemOut(
+                id=item.id,
+                description=item.description,
+                assignee_guess=item.assignee_guess,
+                completed=item.completed,
+            )
             for item in action_items
         ],
     )
@@ -1054,6 +1139,18 @@ def trigger_summarize(
     except (GroqAPIError, SummarizeError) as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
+    # summarize() returns the LLM's raw parsed dicts (no db id yet - it ran
+    # against its own separate session). save_summary() inside it deletes and
+    # recreates every ActionItem row for this meeting each time, so
+    # re-querying here gets exactly the freshly-created rows, now with real
+    # ids - needed since ActionItemOut carries id/completed for the frontend.
+    fresh_items = (
+        db.query(ActionItem)
+        .filter_by(meeting_id=meeting_id)
+        .order_by(ActionItem.generated_at)
+        .all()
+    )
+
     return SummarizeResponse(
         success=True,
         meeting_id=result.meeting_id,
@@ -1061,8 +1158,13 @@ def trigger_summarize(
         key_points=result.key_points,
         decisions=result.decisions,
         action_items=[
-            ActionItemOut(description=item["description"], assignee_guess=item["assignee"])
-            for item in result.action_items
+            ActionItemOut(
+                id=item.id,
+                description=item.description,
+                assignee_guess=item.assignee_guess,
+                completed=item.completed,
+            )
+            for item in fresh_items
         ],
         chapters=[ChapterOut(**c) for c in result.chapters],
     )

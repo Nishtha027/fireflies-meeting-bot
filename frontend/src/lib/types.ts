@@ -45,8 +45,10 @@ export interface Summary {
 }
 
 export interface ActionItem {
+  id: number;
   description: string;
   assignee_guess: string | null;
+  completed: boolean;
 }
 
 export interface MeetingDetail {
@@ -188,6 +190,11 @@ export interface MeResponse {
 export interface DeleteMeetingResponse {
   success: boolean;
   meeting_id: number;
+}
+
+export interface DeleteActionItemResponse {
+  success: boolean;
+  action_item_id: number;
 }
 
 export interface AccountUpdateResponse {

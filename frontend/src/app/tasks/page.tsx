@@ -198,7 +198,7 @@ export default function TasksPage() {
     );
 
     try {
-      await updateActionItem(item.id, nextCompleted);
+      await updateActionItem(item.id, { completed: nextCompleted });
     } catch {
       setItems(
         (prev) =>
