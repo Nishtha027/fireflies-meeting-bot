@@ -14,11 +14,13 @@ import type {
   EmbedAllResponse,
   HealthResponse,
   IngestResponse,
+  ManualMeetingResponse,
   MeetingAnalytics,
   MeetingDetail,
   MeetingListItem,
   MeetingTitleUpdateResponse,
   MeResponse,
+  ParticipantRenameResponse,
   SearchResult,
   SummarizeResponse,
 } from "./types";
@@ -119,6 +121,45 @@ export function updateMeetingTitle(
 
 export function getParticipants(): Promise<string[]> {
   return request<string[]>("/meetings/participants");
+}
+
+/** Renames one participant within a single meeting only - never globally.
+ * If newName already belongs to a different participant in the same
+ * meeting, the two merge server-side (intentional, not an error). */
+export function renameParticipant(
+  meetingId: number,
+  oldName: string,
+  newName: string,
+): Promise<ParticipantRenameResponse> {
+  return request<ParticipantRenameResponse>(`/meetings/${meetingId}/participants`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ old_name: oldName, new_name: newName }),
+  });
+}
+
+export interface ManualMeetingPayload {
+  title?: string | null;
+  /** ISO datetime string; omitted defaults to now server-side. */
+  meetingDate?: string | null;
+  transcriptText: string;
+}
+
+/** Creates a meeting from a pasted transcript - bypasses Vexa entirely, no
+ * bot, no audio, ever, for meetings created this way. Summarization runs
+ * synchronously server-side before this resolves. */
+export function createManualMeeting(
+  payload: ManualMeetingPayload,
+): Promise<ManualMeetingResponse> {
+  return request<ManualMeetingResponse>("/meetings/manual", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: payload.title || null,
+      meeting_date: payload.meetingDate || null,
+      transcript_text: payload.transcriptText,
+    }),
+  });
 }
 
 export function ingestMeeting(id: number): Promise<IngestResponse> {

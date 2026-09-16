@@ -154,7 +154,10 @@ export default function AnalyticsPage() {
                   <div className="flex flex-col gap-2 lg:col-span-1">
                     {meetings.map((m) => {
                       const isSelected = m.id === selectedMeetingId;
-                      const duration = formatDuration(m.start_time, m.end_time);
+                      const duration =
+                        m.platform === "manual"
+                          ? "Manually added"
+                          : formatDuration(m.start_time, m.end_time);
                       return (
                         <button
                           key={m.id}
@@ -186,18 +189,28 @@ export default function AnalyticsPage() {
                       </h3>
                     )}
 
-                    {meetingAnalyticsError && (
-                      <p className="text-sm text-red-600 dark:text-red-400">
-                        Couldn&apos;t load this meeting&apos;s talk-time breakdown.
+                    {selectedMeeting?.platform === "manual" ? (
+                      <p className="py-8 text-center text-sm italic text-muted-foreground">
+                        Talk-time analytics isn&apos;t available for manually
+                        created meetings - timestamps here only preserve line
+                        order, not real speaking time.
                       </p>
-                    )}
+                    ) : (
+                      <>
+                        {meetingAnalyticsError && (
+                          <p className="text-sm text-red-600 dark:text-red-400">
+                            Couldn&apos;t load this meeting&apos;s talk-time breakdown.
+                          </p>
+                        )}
 
-                    {!meetingAnalyticsError && currentMeetingAnalytics === null && (
-                      <div className="h-48 animate-pulse rounded bg-muted" />
-                    )}
+                        {!meetingAnalyticsError && currentMeetingAnalytics === null && (
+                          <div className="h-48 animate-pulse rounded bg-muted" />
+                        )}
 
-                    {!meetingAnalyticsError && currentMeetingAnalytics && (
-                      <TalkTimePieChart speakers={currentMeetingAnalytics.speakers} />
+                        {!meetingAnalyticsError && currentMeetingAnalytics && (
+                          <TalkTimePieChart speakers={currentMeetingAnalytics.speakers} />
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

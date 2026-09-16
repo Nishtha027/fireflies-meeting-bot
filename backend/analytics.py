@@ -119,12 +119,20 @@ def get_analytics_overview(user_id: int) -> AnalyticsOverview:
     session = SessionLocal()
     try:
         meetings = session.query(Meeting).filter_by(user_id=user_id).all()
-        meeting_ids = [m.id for m in meetings]
+        # platform="manual" meetings (created from a pasted transcript, see
+        # manual_meeting.py) only have synthetic, order-preserving per-line
+        # timestamps - not real durations or real speaking time - so they're
+        # excluded from these aggregate duration/top-speaker calculations
+        # entirely, to avoid quietly skewing real numbers with meaningless
+        # synthetic data. They still count toward total_meetings below -
+        # they're real meetings the user added, just not real recordings.
+        real_meetings = [m for m in meetings if m.platform != "manual"]
+        real_meeting_ids = [m.id for m in real_meetings]
         segments = (
             session.query(TranscriptSegment)
-            .filter(TranscriptSegment.meeting_id.in_(meeting_ids))
+            .filter(TranscriptSegment.meeting_id.in_(real_meeting_ids))
             .all()
-            if meeting_ids
+            if real_meeting_ids
             else []
         )
     finally:
@@ -136,13 +144,14 @@ def get_analytics_overview(user_id: int) -> AnalyticsOverview:
 
     total_duration_seconds = sum(
         _meeting_duration_seconds(meeting, segments_by_meeting.get(meeting.id, []))
-        for meeting in meetings
+        for meeting in real_meetings
     )
 
-    # Combined across every meeting - there's no separate speaker-identity
-    # table in this app, so speaker_label IS the identity (e.g. "Nishtha
-    # Jain" said the same way in every meeting she's in). "Unknown Speaker"
-    # is not special-cased, per the same rule as the per-meeting endpoint.
+    # Combined across every real meeting - there's no separate speaker-
+    # identity table in this app, so speaker_label IS the identity (e.g.
+    # "Nishtha Jain" said the same way in every meeting she's in). "Unknown
+    # Speaker" is not special-cased, per the same rule as the per-meeting
+    # endpoint.
     talk_time_across_meetings = _talk_time_by_speaker(segments)
 
     top_speaker = None

@@ -83,7 +83,7 @@ export function QuickStart() {
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <QuickStartCard
           label="Capture Meeting"
-          description="Send a bot into a Google Meet call"
+          description="Join live, or paste a transcript"
           icon={Video}
           accent="indigo"
           onClick={() => setOpenModal("capture")}

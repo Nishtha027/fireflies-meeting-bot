@@ -46,7 +46,13 @@ function ParticipantList({ participants }: { participants: string[] }) {
 }
 
 export function MeetingCard({ meeting }: { meeting: MeetingListItem }) {
-  const duration = formatDuration(meeting.start_time, meeting.end_time);
+  // Manually created meetings (pasted transcript) only have synthetic,
+  // order-preserving line timestamps - showing a computed "X min" here
+  // would present fabricated data as if it were a real duration.
+  const duration =
+    meeting.platform === "manual"
+      ? "Manually added"
+      : formatDuration(meeting.start_time, meeting.end_time);
 
   return (
     <Link

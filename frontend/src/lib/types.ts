@@ -197,6 +197,25 @@ export interface DeleteActionItemResponse {
   action_item_id: number;
 }
 
+export interface ParticipantRenameResponse {
+  success: boolean;
+  meeting_id: number;
+  old_name: string;
+  new_name: string;
+  segments_updated: number;
+  merged: boolean;
+  chunks_written: number;
+}
+
+export interface ManualMeetingResponse {
+  success: boolean;
+  meeting_id: number;
+  segments_saved: number;
+  speaker_format_detected: boolean;
+  summarized: boolean;
+  summarize_error: string | null;
+}
+
 export interface AccountUpdateResponse {
   success: boolean;
   id: number;

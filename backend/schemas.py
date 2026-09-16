@@ -161,6 +161,46 @@ class ActionItemUpdate(BaseModel):
     assignee_guess: str | None = Field(default=None, max_length=200)
 
 
+class ParticipantRenameRequest(BaseModel):
+    """Body for PATCH /meetings/{id}/participants - renames one participant
+    within a single meeting (never globally, see main.py). If new_name
+    already belongs to a different participant in the same meeting, the two
+    merge - this is intentional (e.g. diarization split one person into two
+    labels), not an error."""
+
+    old_name: str = Field(min_length=1, max_length=200)
+    new_name: str = Field(min_length=1, max_length=200)
+
+
+class ParticipantRenameResponse(BaseModel):
+    success: bool
+    meeting_id: int
+    old_name: str
+    new_name: str
+    segments_updated: int
+    merged: bool
+    chunks_written: int
+
+
+class ManualMeetingCreate(BaseModel):
+    """Body for POST /meetings/manual - creates a meeting from a pasted
+    transcript instead of live Vexa capture. meeting_date defaults to now
+    when omitted; transcript_text is the only required field."""
+
+    title: str | None = Field(default=None, max_length=500)
+    meeting_date: datetime | None = None
+    transcript_text: str = Field(min_length=1, max_length=500_000)
+
+
+class ManualMeetingResponse(BaseModel):
+    success: bool
+    meeting_id: int
+    segments_saved: int
+    speaker_format_detected: bool
+    summarized: bool
+    summarize_error: str | None
+
+
 class EmbedResponse(BaseModel):
     success: bool
     meeting_id: int

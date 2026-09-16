@@ -76,6 +76,11 @@ from embeddings import (
 )
 from embeddings import MeetingNotFoundError as EmbedMeetingNotFoundError
 from ingest_transcript import IngestError, VexaAPIError, VexaNotFoundError, ingest
+from manual_meeting import (
+    EmptyTranscriptError,
+    ManualMeetingError,
+    create_manual_meeting,
+)
 from meeting_audio import MeetingAudioError, NoRecordingError, get_audio_stream
 from poller import start_scheduler, stop_scheduler
 from schemas import (
@@ -106,12 +111,16 @@ from schemas import (
     HealthResponse,
     IngestResponse,
     LoginRequest,
+    ManualMeetingCreate,
+    ManualMeetingResponse,
     MeetingAnalyticsOut,
     MeetingDetail,
     MeetingListItem,
     MeetingTitleUpdateRequest,
     MeetingTitleUpdateResponse,
     MeResponse,
+    ParticipantRenameRequest,
+    ParticipantRenameResponse,
     RegisterRequest,
     SearchResult,
     SpeakerTalkTimeOut,
@@ -360,6 +369,121 @@ def update_meeting_title(
     db.refresh(meeting)
 
     return MeetingTitleUpdateResponse(success=True, meeting_id=meeting.id, title=meeting.title)
+
+
+@protected.patch("/meetings/{meeting_id}/participants", response_model=ParticipantRenameResponse)
+def rename_participant(
+    payload: ParticipantRenameRequest,
+    meeting_id: int = Path(..., gt=0),
+    current_user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """Renames one participant WITHIN this meeting only - never globally
+    (the same person can be labeled differently in a different meeting).
+    Updates every transcript_segments row for this meeting matching
+    old_name. If new_name already belongs to a different participant in the
+    same meeting, this naturally merges them (e.g. diarization split one
+    person into two labels) - intentional, not an error.
+
+    KNOWN LIMITATION: this meeting's already-generated summary/decisions/
+    key_points/chapters text is frozen at generation time and will NOT be
+    rewritten to reflect the new name - only re-running "Generate Summary"
+    picks up the change there. Not solved here by design (a heavier,
+    separately-worded action with its own side effects).
+    """
+    meeting = db.get(Meeting, meeting_id)
+    if meeting is None or meeting.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"No meeting with id={meeting_id}.")
+
+    old_name = payload.old_name.strip()
+    new_name = payload.new_name.strip()
+    if not old_name or not new_name:
+        raise HTTPException(status_code=422, detail="old_name and new_name must not be empty.")
+
+    segments = (
+        db.query(TranscriptSegment)
+        .filter_by(meeting_id=meeting_id, speaker_label=old_name)
+        .all()
+    )
+    if not segments:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No participant named {old_name!r} in this meeting.",
+        )
+
+    merged = old_name != new_name and (
+        db.query(TranscriptSegment)
+        .filter_by(meeting_id=meeting_id, speaker_label=new_name)
+        .first()
+        is not None
+    )
+
+    for seg in segments:
+        seg.speaker_label = new_name
+    db.commit()
+
+    # The transcript content embedded for /chat is now stale (old speaker
+    # name baked into the chunk text) - refresh it synchronously so chat
+    # answers/citations reflect the rename immediately. This is the ONLY
+    # place that would ever re-embed an already-embedded meeting: embed_all
+    # (POST /embed-all, auto-called on the Chat page) skips any meeting that
+    # already has chunks in Chroma, so without this call the stale chunks
+    # would persist indefinitely. Not swallowed on failure - the rename
+    # itself is already committed (real, durable data), but the caller
+    # needs to know the chat index is now out of sync rather than being told
+    # everything succeeded.
+    try:
+        chunks_written = embed_meeting(meeting_id)
+    except EmbedMeetingNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except NoContentError:
+        chunks_written = 0
+    except EmbeddingError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Participant renamed, but refreshing the chat index failed: {exc}",
+        )
+
+    return ParticipantRenameResponse(
+        success=True,
+        meeting_id=meeting_id,
+        old_name=old_name,
+        new_name=new_name,
+        segments_updated=len(segments),
+        merged=merged,
+        chunks_written=chunks_written,
+    )
+
+
+@protected.post("/meetings/manual", response_model=ManualMeetingResponse, status_code=201)
+def create_manual_meeting_endpoint(
+    payload: ManualMeetingCreate,
+    current_user: User = Depends(require_auth),
+):
+    """Creates a meeting from a pasted transcript - no bot, no Vexa, no
+    audio, ever, for meetings made this way (platform="manual"). Always
+    owned by current_user; there's no target meeting id in the request, so
+    there's nothing here that could touch another user's data."""
+    try:
+        result = create_manual_meeting(
+            user_id=current_user.id,
+            title=payload.title,
+            meeting_date=payload.meeting_date,
+            transcript_text=payload.transcript_text,
+        )
+    except EmptyTranscriptError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except ManualMeetingError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return ManualMeetingResponse(
+        success=True,
+        meeting_id=result.meeting_id,
+        segments_saved=result.segments_saved,
+        speaker_format_detected=result.speaker_format_detected,
+        summarized=result.summarized,
+        summarize_error=result.summarize_error,
+    )
 
 
 @protected.post("/meetings/{meeting_id}/action-items", response_model=ActionItemOut, status_code=201)

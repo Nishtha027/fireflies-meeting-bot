@@ -24,6 +24,7 @@ import { AudioPlayer, type AudioPlayerHandle } from "@/components/AudioPlayer";
 import { TranscriptView, TranscriptSkeleton } from "@/components/TranscriptView";
 import { SummaryPanelContent, SidebarSkeleton } from "@/components/SummarySidebar";
 import { TalkTimeBarChart } from "@/components/TalkTimeChart";
+import { ParticipantsList } from "@/components/ParticipantsList";
 import { formatDateTime, formatDuration, meetingTitle, segmentElapsedSeconds } from "@/lib/format";
 import { findTranscriptMatches } from "@/lib/transcriptSearch";
 
@@ -420,6 +421,25 @@ export default function MeetingDetailPage() {
     }
   }
 
+  // A rename can change segment counts per speaker (merge case) and the
+  // set of distinct participant names, so both the transcript-derived
+  // meeting data and the talk-time analytics need a full refetch rather
+  // than a local patch - simplest way to stay correct across the merge
+  // case without hand-reconciling state in multiple places.
+  async function handleParticipantRenamed() {
+    try {
+      const [freshMeeting, freshAnalytics] = await Promise.all([
+        getMeeting(meetingId),
+        getMeetingAnalytics(meetingId),
+      ]);
+      setMeeting(freshMeeting);
+      setAnalytics(freshAnalytics);
+    } catch {
+      // Best-effort refresh - the rename itself already succeeded server-
+      // side; a reload of the page will show the latest state regardless.
+    }
+  }
+
   async function handleGenerateSummary() {
     setSummarizing(true);
     setSummarizeError(null);
@@ -466,7 +486,9 @@ export default function MeetingDetailPage() {
   }
 
   const duration = meeting
-    ? formatDuration(meeting.start_time, meeting.end_time)
+    ? meeting.platform === "manual"
+      ? "Manually added"
+      : formatDuration(meeting.start_time, meeting.end_time)
     : null;
 
   return (
@@ -657,18 +679,31 @@ export default function MeetingDetailPage() {
         </section>
 
         <aside className="rounded-xl border border-border bg-card p-6 lg:sticky lg:top-6">
-          {meeting &&
-            !analyticsFailed &&
-            (currentAnalytics === null || currentAnalytics.speakers.length > 0) && (
-              <div className="mb-6 border-b border-border pb-6">
-                <h3 className="mb-2 text-sm font-semibold text-foreground">Talk time</h3>
-                {currentAnalytics === null ? (
+          {meeting && meeting.participants.length > 0 && (
+            <div className="mb-6 border-b border-border pb-6">
+              <h3 className="mb-2 text-sm font-semibold text-foreground">Talk time</h3>
+              {meeting.platform === "manual" ? (
+                <p className="text-xs italic text-muted-foreground">
+                  Talk-time analytics isn&apos;t available for manually created
+                  meetings - timestamps here only preserve line order, not
+                  real speaking time.
+                </p>
+              ) : (
+                !analyticsFailed &&
+                (currentAnalytics === null || currentAnalytics.speakers.length > 0) &&
+                (currentAnalytics === null ? (
                   <div className="h-14 animate-pulse rounded bg-muted" />
                 ) : (
                   <TalkTimeBarChart speakers={currentAnalytics.speakers} />
-                )}
-              </div>
-            )}
+                ))
+              )}
+              <ParticipantsList
+                meetingId={meeting.id}
+                participants={meeting.participants}
+                onRenamed={handleParticipantRenamed}
+              />
+            </div>
+          )}
 
           {!meeting && <SidebarSkeleton />}
 
