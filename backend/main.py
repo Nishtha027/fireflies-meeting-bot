@@ -19,7 +19,19 @@ import traceback
 from contextlib import asynccontextmanager
 from datetime import date
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Path, Query, Request, Response
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -128,6 +140,7 @@ from schemas import (
     SummaryOut,
     TopSpeakerOut,
     TranscriptSegmentOut,
+    UploadMeetingResponse,
 )
 from stop_vexa_bot import VexaStopBotAPIError, stop_vexa_bot
 from summarize_meeting import (
@@ -140,6 +153,14 @@ from summarize_meeting import (
     SummarizeError,
     TranscriptTooLongError,
     summarize,
+)
+from upload_meeting import (
+    FileTooLargeError,
+    UnsupportedFileTypeError,
+    create_upload_meeting,
+    process_uploaded_file,
+    save_upload_to_temp,
+    validate_extension,
 )
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -484,6 +505,37 @@ def create_manual_meeting_endpoint(
         summarized=result.summarized,
         summarize_error=result.summarize_error,
     )
+
+
+@protected.post("/meetings/upload", response_model=UploadMeetingResponse, status_code=201)
+async def upload_meeting_endpoint(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_auth),
+):
+    """Transcribes an uploaded audio/video recording (platform="upload") via
+    our self-hosted transcription service - see upload_meeting.py. Creates
+    the meeting row and returns immediately (status="processing"); the
+    actual transcription + summarization happens afterward as a background
+    task. Poll GET /meetings/{id} (status + processing_error) to follow
+    progress, same idea as Capture Meeting's status polling."""
+    filename = file.filename or "upload"
+    try:
+        ext = validate_extension(filename)
+    except UnsupportedFileTypeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    try:
+        tmp_path, _size_bytes = await save_upload_to_temp(file, ext)
+    except FileTooLargeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    finally:
+        await file.close()
+
+    result = create_upload_meeting(current_user.id, filename)
+    background_tasks.add_task(process_uploaded_file, result.meeting_id, tmp_path, ext)
+
+    return UploadMeetingResponse(success=True, meeting_id=result.meeting_id, status="processing")
 
 
 @protected.post("/meetings/{meeting_id}/action-items", response_model=ActionItemOut, status_code=201)
@@ -947,6 +999,7 @@ def get_meeting(
         start_time=meeting.start_time,
         end_time=meeting.end_time,
         status=meeting.status,
+        processing_error=meeting.processing_error,
         participants=_meeting_participants(db, meeting_id),
         transcript=[
             TranscriptSegmentOut(

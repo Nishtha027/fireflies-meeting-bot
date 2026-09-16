@@ -23,6 +23,7 @@ import type {
   ParticipantRenameResponse,
   SearchResult,
   SummarizeResponse,
+  UploadMeetingResponse,
 } from "./types";
 
 /** Paths the app renders without a session - never bounce these back to
@@ -159,6 +160,21 @@ export function createManualMeeting(
       meeting_date: payload.meetingDate || null,
       transcript_text: payload.transcriptText,
     }),
+  });
+}
+
+/** Uploads an audio/video recording for transcription (platform="upload").
+ * Transcription + summarization run afterward as a background task - the
+ * response only confirms the meeting was created (status="processing");
+ * poll getMeeting(id) for status/processing_error, same as live capture's
+ * status polling. No explicit Content-Type header - the browser sets the
+ * multipart boundary itself from the FormData body. */
+export function uploadMeeting(file: File): Promise<UploadMeetingResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return request<UploadMeetingResponse>("/meetings/upload", {
+    method: "POST",
+    body: formData,
   });
 }
 

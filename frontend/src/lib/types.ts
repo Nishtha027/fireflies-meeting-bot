@@ -60,6 +60,9 @@ export interface MeetingDetail {
   start_time: string | null;
   end_time: string | null;
   status: string;
+  /** Only ever set for a platform="upload" meeting whose transcription
+   * failed (status="failed") - null otherwise. */
+  processing_error: string | null;
   participants: string[];
   transcript: TranscriptSegment[];
   summary: Summary | null;
@@ -214,6 +217,12 @@ export interface ManualMeetingResponse {
   speaker_format_detected: boolean;
   summarized: boolean;
   summarize_error: string | null;
+}
+
+export interface UploadMeetingResponse {
+  success: boolean;
+  meeting_id: number;
+  status: string;
 }
 
 export interface AccountUpdateResponse {

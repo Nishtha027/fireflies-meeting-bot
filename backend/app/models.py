@@ -67,6 +67,12 @@ class Meeting(Base):
     start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
+    # Only ever set (status="failed") by the upload pipeline (upload_meeting.py)
+    # when transcription/extraction fails - lets GET /meetings/{id} surface a
+    # real error instead of a meeting stuck at "processing" forever with no
+    # explanation. Null for every other platform, which has no comparable
+    # failure mode to report this way.
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     owner: Mapped["User | None"] = relationship(back_populates="meetings")

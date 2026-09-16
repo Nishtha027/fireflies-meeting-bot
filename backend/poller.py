@@ -68,6 +68,14 @@ def poll_in_progress_meetings() -> None:
                 for m in session.query(Meeting.id)
                 .filter(Meeting.user_id.isnot(None))
                 .filter(Meeting.status.notin_(TERMINAL_STATUSES))
+                # platform="upload" meetings are never Vexa-backed - they
+                # have no bot, no native_meeting_id Vexa has ever heard of,
+                # and their own FastAPI BackgroundTask (upload_meeting.py)
+                # already drives them to "completed"/"failed" directly.
+                # Checking them here would just be a guaranteed-404 round
+                # trip to Vexa's API, repeated every cycle for as long as a
+                # transcription is running.
+                .filter(Meeting.platform != "upload")
                 .all()
             ]
         finally:

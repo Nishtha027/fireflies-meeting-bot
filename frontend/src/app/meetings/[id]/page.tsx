@@ -310,7 +310,14 @@ export default function MeetingDetailPage() {
         // already completed by the time this loads, refresh once to show
         // it. Not a polling loop - if it's still in progress, the page
         // simply shows that, same as before.
-        if (!isTerminalCaptureStatus(data.status)) {
+        //
+        // platform="upload" is excluded: it's never Vexa-backed (no bot,
+        // no native_meeting_id Vexa has ever heard of), so this would just
+        // be a pointless round trip while it's still transcribing -
+        // reflected here rather than in isTerminalCaptureStatus() itself,
+        // since "in progress" is still an accurate description of its
+        // status, just not one this particular check applies to.
+        if (data.platform !== "upload" && !isTerminalCaptureStatus(data.status)) {
           setCheckingStatus(true);
           getCaptureStatus(meetingId)
             .then((status) => {

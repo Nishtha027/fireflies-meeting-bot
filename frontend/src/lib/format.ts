@@ -4,6 +4,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   google_meet: "Google Meet",
   zoom: "Zoom",
   teams: "Microsoft Teams",
+  upload: "Uploaded File",
 };
 
 /** Vexa's bot-lifecycle statuses are snake_case (e.g. "awaiting_admission");

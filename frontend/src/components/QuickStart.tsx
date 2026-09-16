@@ -6,6 +6,7 @@ import type { ComponentType } from "react";
 import { CaptureMeetingModal } from "./CaptureMeetingModal";
 import { Modal } from "./Modal";
 import { ComingSoonPanel } from "./ComingSoonPanel";
+import { UploadMeetingModal } from "./UploadMeetingModal";
 
 type AccentColor = "indigo" | "sky" | "amber";
 
@@ -118,12 +119,7 @@ export function QuickStart() {
       )}
 
       {openModal === "upload" && (
-        <Modal title="Upload File" onClose={() => setOpenModal(null)}>
-          <ComingSoonPanel
-            icon={UploadCloud}
-            message="Uploading an existing recording for transcription is planned for a future update."
-          />
-        </Modal>
+        <UploadMeetingModal onClose={() => setOpenModal(null)} />
       )}
     </div>
   );

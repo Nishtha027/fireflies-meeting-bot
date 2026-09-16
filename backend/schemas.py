@@ -74,6 +74,10 @@ class MeetingDetail(BaseModel):
     start_time: datetime | None
     end_time: datetime | None
     status: str
+    # Only ever set for platform="upload" meetings whose transcription
+    # failed (status="failed") - null otherwise. Lets the upload flow show
+    # a real error instead of a meeting stuck at "processing" forever.
+    processing_error: str | None
     participants: list[str]
     transcript: list[TranscriptSegmentOut]
     summary: SummaryOut | None
@@ -199,6 +203,16 @@ class ManualMeetingResponse(BaseModel):
     speaker_format_detected: bool
     summarized: bool
     summarize_error: str | None
+
+
+class UploadMeetingResponse(BaseModel):
+    """Response for POST /meetings/upload. Transcription/summarization runs
+    afterward as a background task - poll GET /meetings/{id}'s status and
+    processing_error fields (see MeetingDetail) rather than waiting here."""
+
+    success: bool
+    meeting_id: int
+    status: str
 
 
 class EmbedResponse(BaseModel):
