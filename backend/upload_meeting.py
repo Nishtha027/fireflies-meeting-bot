@@ -38,6 +38,7 @@ from fastapi import UploadFile
 
 from app.database import SessionLocal
 from app.models import Meeting, TranscriptSegment
+from manual_meeting import ManualMeetingResult, create_manual_meeting
 from summarize_meeting import (
     GroqAPIError,
     GroqAuthError,
@@ -70,7 +71,13 @@ class UploadConfigError(UploadMeetingError):
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm"}
-ALLOWED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
+# A .txt/.md upload already IS a transcript - no audio, nothing to
+# transcribe - so these are routed straight into the same manual-meeting
+# creation path "Paste a transcript" already uses (see
+# create_manual_meeting_from_text() below), never into the audio/video
+# branch this module otherwise exists for.
+TEXT_EXTENSIONS = {".txt", ".md"}
+ALLOWED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | TEXT_EXTENSIONS
 
 # 1 GiB: generous enough for a full meeting recording (audio-only files are
 # tiny at this size - hours of compressed speech; a moderate-length video
@@ -81,9 +88,26 @@ ALLOWED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
 MAX_UPLOAD_SIZE_BYTES = 1024 * 1024 * 1024
 _UPLOAD_CHUNK_SIZE = 1024 * 1024
 
+# Matches ManualMeetingCreate.transcript_text's own cap (schemas.py) - a
+# .txt/.md upload reuses that exact same manual-meeting creation path, so
+# it should never be allowed to exceed a limit pasting the same content
+# wouldn't. Bytes, not chars: checked against the raw read before
+# decoding, so a huge file is never buffered into memory just to find out
+# it's too big (same spirit as save_upload_to_temp()'s streaming cap
+# above, just bounded by a single capped read instead of a loop - text
+# files are small enough not to need chunking).
+MAX_TEXT_UPLOAD_BYTES = 500_000
+
 # Single label for every segment - no diarization (see module docstring).
 # Plain and honest rather than implying an identity we don't have.
 UPLOAD_SPEAKER_LABEL = "Speaker"
+
+
+def _derive_title(filename: str) -> str | None:
+    """Filename with its extension stripped, or None if that's blank -
+    shared by both the audio/video and text-file branches so "default
+    title = filename" stays defined in exactly one place."""
+    return Path(filename).stem.strip() or None
 
 
 def validate_extension(filename: str) -> str:
@@ -136,7 +160,7 @@ def create_upload_meeting(user_id: int, filename: str) -> UploadCreateResult:
     transcription happens afterward in process_uploaded_file(). Title
     defaults to the filename (extension stripped) - overridable afterward
     via the existing PATCH /meetings/{id}, same as every other meeting."""
-    title = Path(filename).stem.strip() or None
+    title = _derive_title(filename)
 
     session = SessionLocal()
     try:
@@ -158,6 +182,44 @@ def create_upload_meeting(user_id: int, filename: str) -> UploadCreateResult:
         session.close()
 
     return UploadCreateResult(meeting_id=meeting_id)
+
+
+async def read_text_upload(file: UploadFile) -> str:
+    """Reads a .txt/.md upload's full content as text. Bounded to a single
+    capped read (MAX_TEXT_UPLOAD_BYTES + 1 bytes) rather than file.read()
+    with no limit, so a mislabeled huge file (e.g. a video renamed .txt)
+    can't be buffered into memory before FileTooLargeError even gets a
+    chance to reject it."""
+    raw = await file.read(MAX_TEXT_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_TEXT_UPLOAD_BYTES:
+        raise FileTooLargeError(
+            f"Text file exceeds the {MAX_TEXT_UPLOAD_BYTES:,} character limit "
+            "(same limit as pasting a transcript directly)."
+        )
+    return raw.decode("utf-8", errors="replace")
+
+
+def create_manual_meeting_from_text(user_id: int, filename: str, text_content: str) -> ManualMeetingResult:
+    """Routes a .txt/.md upload through the exact same manual-meeting
+    creation function "Paste a transcript" already uses (platform="manual",
+    synchronous, no audio, no background task, no real timing to derive) -
+    the file's content already IS the transcript, so there is nothing here
+    to transcribe. This is why text-file uploads automatically inherit
+    every existing manual-meeting behavior (honest no-fake-duration
+    display, excluded from analytics aggregates, etc.) with zero new
+    special-casing: they ARE manual meetings, not a new platform.
+
+    Title defaults to the filename (extension stripped), same convention
+    as the audio/video branch's create_upload_meeting(). meeting_date is
+    left unset (defaults to now inside create_manual_meeting()) - a
+    plain .txt/.md file carries no reliable date of its own to prefer over
+    that default, same as a pasted transcript with no date field filled in."""
+    return create_manual_meeting(
+        user_id=user_id,
+        title=_derive_title(filename),
+        meeting_date=None,
+        transcript_text=text_content,
+    )
 
 
 def _ffmpeg_executable() -> str:

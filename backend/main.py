@@ -155,10 +155,13 @@ from summarize_meeting import (
     summarize,
 )
 from upload_meeting import (
+    TEXT_EXTENSIONS,
     FileTooLargeError,
     UnsupportedFileTypeError,
+    create_manual_meeting_from_text,
     create_upload_meeting,
     process_uploaded_file,
+    read_text_upload,
     save_upload_to_temp,
     validate_extension,
 )
@@ -513,17 +516,41 @@ async def upload_meeting_endpoint(
     file: UploadFile = File(...),
     current_user: User = Depends(require_auth),
 ):
-    """Transcribes an uploaded audio/video recording (platform="upload") via
-    our self-hosted transcription service - see upload_meeting.py. Creates
-    the meeting row and returns immediately (status="processing"); the
-    actual transcription + summarization happens afterward as a background
-    task. Poll GET /meetings/{id} (status + processing_error) to follow
-    progress, same idea as Capture Meeting's status polling."""
+    """Two branches, split on file type:
+
+    - .txt/.md: already IS a transcript - read synchronously and routed
+      straight into the same manual-meeting creation path "Paste a
+      transcript" uses (platform="manual", completed immediately, no
+      background task - see create_manual_meeting_from_text()).
+    - audio/video: transcribed via our self-hosted transcription service -
+      see upload_meeting.py. Creates the meeting row and returns
+      immediately (status="processing"); the actual transcription +
+      summarization happens afterward as a background task. Poll
+      GET /meetings/{id} (status + processing_error) to follow progress,
+      same idea as Capture Meeting's status polling.
+    """
     filename = file.filename or "upload"
     try:
         ext = validate_extension(filename)
     except UnsupportedFileTypeError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+    if ext in TEXT_EXTENSIONS:
+        try:
+            text_content = await read_text_upload(file)
+        except FileTooLargeError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        finally:
+            await file.close()
+
+        try:
+            text_result = create_manual_meeting_from_text(current_user.id, filename, text_content)
+        except EmptyTranscriptError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except ManualMeetingError as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+
+        return UploadMeetingResponse(success=True, meeting_id=text_result.meeting_id, status="completed")
 
     try:
         tmp_path, _size_bytes = await save_upload_to_temp(file, ext)

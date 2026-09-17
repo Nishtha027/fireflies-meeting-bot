@@ -12,7 +12,11 @@ const MAX_CONSECUTIVE_POLL_ERRORS = 5;
 
 // Mirrors backend/upload_meeting.py's ALLOWED_EXTENSIONS - kept in sync
 // manually, same as this app's other frontend/backend schema mirrors.
-const ALLOWED_EXTENSIONS = [".mp3", ".wav", ".m4a", ".ogg", ".mp4", ".mov", ".webm"];
+const ALLOWED_EXTENSIONS = [
+  ".mp3", ".wav", ".m4a", ".ogg",
+  ".mp4", ".mov", ".webm",
+  ".txt", ".md",
+];
 
 function hasAllowedExtension(filename: string): boolean {
   const lower = filename.toLowerCase();
@@ -96,6 +100,16 @@ export function UploadMeetingModal({ onClose }: { onClose: () => void }) {
     setFormError(null);
     try {
       const result = await uploadMeeting(file);
+      // .txt/.md files are processed synchronously (routed into the same
+      // manual-meeting path "Paste a transcript" uses) and come back
+      // already "completed" - navigate straight there like paste-transcript
+      // already does, rather than entering the polling UI meant for
+      // audio/video's real, non-instant transcription.
+      if (result.status === "completed") {
+        router.push(`/meetings/${result.meeting_id}`);
+        onClose();
+        return;
+      }
       setUpload({ meetingId: result.meeting_id, status: result.status, processingError: null });
     } catch (err) {
       if (err instanceof NetworkError || err instanceof ApiError) {
@@ -146,7 +160,7 @@ export function UploadMeetingModal({ onClose }: { onClose: () => void }) {
               {submitting ? "Uploading…" : "Drag & drop a recording, or click to browse"}
             </p>
             <p className="text-xs text-muted-foreground">
-              Audio: mp3, wav, m4a, ogg &middot; Video: mp4, mov, webm
+              Audio: mp3, wav, m4a, ogg &middot; Video: mp4, mov, webm &middot; Text: txt, md
             </p>
           </div>
           <input
@@ -162,8 +176,10 @@ export function UploadMeetingModal({ onClose }: { onClose: () => void }) {
             }}
           />
           <p className="mt-3 text-xs text-muted-foreground">
-            No speaker diarization yet &mdash; the whole transcript is
-            attributed to a single &ldquo;Speaker&rdquo; label.
+            Audio/video: transcribed automatically with a single
+            &ldquo;Speaker&rdquo; label (no diarization yet). Text files:
+            lines formatted as &ldquo;Speaker: text&rdquo; are split per
+            speaker automatically &mdash; otherwise saved as one block.
           </p>
           {formError && (
             <p className="mt-2 text-sm text-red-600 dark:text-red-400">{formError}</p>
