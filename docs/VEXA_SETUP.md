@@ -7,10 +7,18 @@ local GPU hardware. Neither piece uses vexa.ai's hosted/paid API or account
 system — everything below runs on this machine, for free.
 
 Vexa lives at [`vexa/`](../vexa) as a **git submodule** — a formally
-recorded dependency pinned to an exact upstream commit, not a loose sibling
-clone. We don't modify its source, only configure it (`.env` files, which
-are gitignored and never come from a submodule clone — see "Cloning this
-repo" below).
+recorded dependency pinned to an exact commit, not a loose sibling clone.
+The submodule points at **our fork**, [`Nishtha027/vexa`](https://github.com/Nishtha027/vexa)
+(`meetscribe-local-patches` branch), not `Vexa-ai/vexa` directly: it
+carries two small local patches (the MinIO/Chainguard fixes below) that
+aren't merged upstream, and a submodule pointer can only resolve to a
+commit that's actually fetchable from wherever its URL points — a commit
+that exists only on someone's local machine breaks `git submodule update`
+for everyone else. `upstream` (the real `Vexa-ai/vexa`) is still configured
+as a second remote inside `vexa/` for pulling future updates. Beyond those
+two patches we don't modify Vexa's source, only configure it (`.env`
+files, which are gitignored and never come from a submodule clone — see
+"Cloning this repo" below).
 
 ## Cloning this repo (with Vexa included)
 
@@ -190,10 +198,16 @@ lands a durable fix, it's worth re-evaluating whether Chainguard + the
 root override is still the best option or just the one that was necessary
 in September 2026.
 
-**`git status` inside `vexa/` will correctly show local modifications**
-relative to the pinned commit (detached from
-`59e2c413a53479125b70b712ade12ab470d55512`). That's expected and
-intentional.
+**`vexa/` has two remotes**: `origin` is our fork
+([`Nishtha027/vexa`](https://github.com/Nishtha027/vexa)), where the two
+local patches actually live (branch `meetscribe-local-patches`, tip
+`7fa678fd`); `upstream` is the real `Vexa-ai/vexa`, kept configured so
+future updates can still be pulled from it. `git status` inside `vexa/`
+should be clean - the patches are committed (`2ac91b39`/`be5d5cb1` for the
+MinIO/Chainguard fixes above, plus `be5d5cb1`'s own uv-timeout tweak),
+just on a fork the pinned commit (`7fa678fd`) is fetchable from. If
+`git status` ever shows uncommitted changes here unexpectedly, that's
+drift to investigate, not the norm.
 
 Then mint a self-host API key (the `provision-token` script needs Python;
 this host's `python3` resolves to the Windows Store alias stub, so we ran it
