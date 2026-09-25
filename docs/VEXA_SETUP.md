@@ -91,20 +91,55 @@ docker pull vexaai/vexa-bot:v012                        # the meeting bot image
 docker compose -p vexa-v012 -f docker-compose.yml up -d --no-build
 ```
 
-**Known gotcha (as of this pinned commit): `minio/mc:latest` no longer
-exists on Docker Hub** (MinIO retired that repo upstream — confirmed via
-Docker Hub's own API returning "object not found", unrelated to anything in
-this project). The `minio-init` one-off container needs it. If `up` fails
-on that image, work around it without touching the submodule's tracked
-files:
+**TEMPORARY LOCAL PATCH (as of this pinned commit): MinIO images cherry-picked
+from upstream, currently still broken upstream too.** Timeline, in order:
 
-```bash
-docker pull quay.io/minio/mc:latest
-docker tag quay.io/minio/mc:latest minio/mc:latest
-```
+1. MinIO withdrew `minio/minio` and `minio/mc` from Docker Hub entirely
+   (confirmed via Docker Hub's own API returning "object not found" - not
+   specific to this project). This broke `minio-init` and `minio` on any
+   machine without a local image cache, including a fresh clone here.
+2. Vexa's own community filed [issue #1671](https://github.com/Vexa-ai/vexa/issues/1671)
+   and opened [PR #1685](https://github.com/Vexa-ai/vexa/pull/1685), repointing
+   both images at MinIO's own quay.io registry, pinned to a dated release
+   (not `:latest` - the PR's own reasoning: "an upstream retag is what broke
+   this"). Verified working in the PR's own observation log as of 2026-09-17.
+3. **We cherry-picked that PR's commit directly onto our pinned submodule
+   commit** (`git fetch origin pull/1685/head && git cherry-pick 494c25f3` -
+   applied cleanly, zero conflicts, since the PR branch was only 2 commits
+   ahead of our pin). This is applied in the submodule working tree right
+   now: `deploy/compose/docker-compose.yml` and `.env.example` reference
+   `MINIO_IMAGE`/`MINIO_MC_IMAGE`, defaulting to
+   `quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z` and
+   `quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z`.
+4. **As of 2026-09-25, this does NOT actually fix the problem.** Confirmed
+   directly: quay.io itself closed anonymous pull access to `minio/minio`/
+   `minio/mc` starting ~13:00 UTC on 2026-09-24 - the day after PR #1685's
+   own verification - returning `401 Unauthorized` even on the exact pinned
+   tags the PR uses. Confirmed this is a deliberate access restriction (not
+   a flake) by decoding quay.io's own anonymous auth token: it grants
+   `"actions": []` for the repository. This is industry-wide - other
+   unrelated projects (Grafana Mimir among them) hit the identical wall the
+   same week. No Vexa-side fix exists yet for this second break; evaluated
+   and rejected `bitnami/minio` as an alternative too (Bitnami's own Docker
+   Hub page states that image now requires a paid Bitnami Secure Images
+   subscription).
 
-Then re-run `up`. This only needs doing once per machine (the local tag
-persists across restarts).
+**Why this patch is still here despite not fixing the live problem:** it's
+the correct, upstream-verified fix for the *first* break (Docker Hub
+withdrawal), it's committed once quay.io access is restored or a further
+upstream fix lands, and re-deriving it later would just mean repeating the
+same cherry-pick. Re-check this section (and quay.io access, and Vexa's
+[#1671](https://github.com/Vexa-ai/vexa/issues/1671)/[#1685](https://github.com/Vexa-ai/vexa/pull/1685) status) before relying on
+`docker compose up` bringing the main stack up cleanly.
+
+**`git status` inside `vexa/` will now correctly show local modifications**
+relative to the pinned commit (the cherry-picked commit, detached from
+`59e2c413a53479125b70b712ade12ab470d55512`). That's expected and
+intentional - not something to "clean up" - until the pinned submodule
+commit is updated to one that includes the real merged upstream fix. When
+that update happens, re-check whether this patch is still needed (a naive
+submodule bump could otherwise silently drop it and reintroduce the
+breakage, or conflict with an already-merged version of the same fix).
 
 Then mint a self-host API key (the `provision-token` script needs Python;
 this host's `python3` resolves to the Windows Store alias stub, so we ran it
@@ -145,6 +180,40 @@ sleep/resume; verified here (2026-09-16) with all four ports this project
 depends on (frontend `:3000`, backend `:8000`, Vexa gateway `:18056`, our
 Postgres `:5433`) plus a real Capture Meeting round-trip (bot join, record,
 stop, ingest) all behaving identically to pre-change behavior.
+
+**Update (2026-09-19): mirrored networking does not fully hold, and at
+least one recurrence had a different cause.** Three separate `docker`
+hangs occurred in one work session on this date, despite `.wslconfig`
+confirmed still set to `networkingMode=mirrored` (unchanged). Investigated
+each rather than assuming they were all the original pattern:
+
+- **Hang #1**: Windows Event Viewer (`Power-Troubleshooter` Event ID 1)
+  shows one real sleep/wake cycle that day, 12:33:24-14:40:43 IST. Docker
+  Desktop's own log (`electron-*.log`) shows its live `/events` connections
+  dropped at 15:07:44 IST - 27 minutes after that wake, not the "as little
+  as 68 seconds" of the original Sep 12-15 pattern. A `Microsoft-Windows-
+  NDIS` driver error (Event ID 10317) fired at 14:40:43 IST, the exact wake
+  moment - consistent with, but not conclusive proof of, the same
+  sleep/resume networking failure as before, just slower to surface.
+- **Hangs #2 and #3** occurred within roughly 15-40 minutes of fixing hang
+  #1 and each other - far too soon for another natural sleep cycle, and no
+  Kernel-Power/Power-Troubleshooter event supports one. These cannot be the
+  original sleep/wake pattern.
+- **What was different this time, confirmed present throughout the whole
+  session: the system drive had 9-22 MB free out of 219 GB** (a separate
+  issue, unrelated to WSL networking - see below). A near-full disk is a
+  plausible independent trigger for WSL2/Docker instability on its own
+  (the VHDX backing WSL2's filesystem needs room to grow); it was active
+  for the full session, so it can't be ruled out as a contributor to hang
+  #1 either, but it's the only candidate that explains hangs #2 and #3,
+  which had no sleep/wake event to blame.
+
+**Read:** the mirrored-networking fix is not fully holding on its own, but
+"three hangs in one session" is not simply that fix failing three times -
+at least two of the three had a disk-space explanation available and no
+sleep/wake trigger. Keep free disk space well above a few GB as routine
+hygiene; don't assume every future hang is the original sleep/resume bug
+without checking for both causes independently, the way this entry did.
 
 ## Pinned version
 
