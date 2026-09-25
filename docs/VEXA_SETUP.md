@@ -91,8 +91,9 @@ docker pull vexaai/vexa-bot:v012                        # the meeting bot image
 docker compose -p vexa-v012 -f docker-compose.yml up -d --no-build
 ```
 
-**TEMPORARY LOCAL PATCH (as of this pinned commit): MinIO images cherry-picked
-from upstream, currently still broken upstream too.** Timeline, in order:
+**MinIO local patch: Chainguard images, current working setup.** MinIO's
+open-source image distribution collapsed entirely over two weeks; this is
+the full timeline and the fix actually running today.
 
 1. MinIO withdrew `minio/minio` and `minio/mc` from Docker Hub entirely
    (confirmed via Docker Hub's own API returning "object not found" - not
@@ -103,43 +104,96 @@ from upstream, currently still broken upstream too.** Timeline, in order:
    both images at MinIO's own quay.io registry, pinned to a dated release
    (not `:latest` - the PR's own reasoning: "an upstream retag is what broke
    this"). Verified working in the PR's own observation log as of 2026-09-17.
-3. **We cherry-picked that PR's commit directly onto our pinned submodule
-   commit** (`git fetch origin pull/1685/head && git cherry-pick 494c25f3` -
-   applied cleanly, zero conflicts, since the PR branch was only 2 commits
-   ahead of our pin). This is applied in the submodule working tree right
-   now: `deploy/compose/docker-compose.yml` and `.env.example` reference
-   `MINIO_IMAGE`/`MINIO_MC_IMAGE`, defaulting to
-   `quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z` and
-   `quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z`.
-4. **As of 2026-09-25, this does NOT actually fix the problem.** Confirmed
-   directly: quay.io itself closed anonymous pull access to `minio/minio`/
-   `minio/mc` starting ~13:00 UTC on 2026-09-24 - the day after PR #1685's
-   own verification - returning `401 Unauthorized` even on the exact pinned
-   tags the PR uses. Confirmed this is a deliberate access restriction (not
-   a flake) by decoding quay.io's own anonymous auth token: it grants
-   `"actions": []` for the repository. This is industry-wide - other
+   We cherry-picked that PR's commit directly onto our pinned submodule
+   commit (`git fetch origin pull/1685/head && git cherry-pick 494c25f3` -
+   applied cleanly, zero conflicts).
+3. **As of 2026-09-25, that fix stopped working too.** quay.io itself closed
+   anonymous pull access to `minio/minio`/`minio/mc` starting ~13:00 UTC on
+   2026-09-24 - the day after PR #1685's own verification - returning `401
+   Unauthorized` even on the exact pinned tags the PR uses. Confirmed
+   deliberate (not a flake) by decoding quay.io's own anonymous auth token:
+   it grants `"actions": []` for the repository. Industry-wide - other
    unrelated projects (Grafana Mimir among them) hit the identical wall the
-   same week. No Vexa-side fix exists yet for this second break; evaluated
-   and rejected `bitnami/minio` as an alternative too (Bitnami's own Docker
-   Hub page states that image now requires a paid Bitnami Secure Images
-   subscription).
+   same week. `bitnami/minio` was evaluated and rejected too - Bitnami's own
+   Docker Hub page states that image now requires a paid Bitnami Secure
+   Images subscription. At this point every free MinIO-published channel we
+   could find was dead, with no upstream fix in sight (MinIO's community
+   edition was archived in April 2026 - there's no further channel to
+   repoint to).
+4. **Switched to Chainguard's images** (`cgr.dev/chainguard/minio` and
+   `cgr.dev/chainguard/minio-client`) - the only channel still serving
+   anonymous pulls, confirmed genuinely maintained (the server binary
+   inside was built 2026-09-22, days before we evaluated it, not a stale
+   mirror). Two real differences from a plain image-name swap, both found
+   by testing rather than assumed:
+   - `mc` lives in a separate image, `chainguard/minio-client`, and its
+     `:latest` tag has no shell - `minio-init`'s `/bin/sh -c "..."`
+     entrypoint needs the `:latest-dev` variant specifically, which does
+     carry one. The `mc` bundled inside `chainguard/minio` itself is
+     sufficient for our existing healthcheck (`mc ready local`).
+   - Both images run as non-root UID 65532 by default, and **in this
+     Docker Desktop/WSL2 environment that non-root user cannot initialize
+     MinIO's backend on any volume** - reproducibly `FATAL Unable to
+     initialize backend: file access denied`, on both our real data volume
+     (even after confirming `chown -R 65532:65532` took effect and made
+     plain file writes succeed) and a brand-new empty volume. Root
+     (`--user 0:0`) works immediately on both. `docker-compose.yml` sets
+     `user: "0:0"` on both `minio` and `minio-init` accordingly - the
+     original `minio/minio` image also ran as root, so this isn't a new
+     posture, just an explicit one now.
+5. **Pre-existing recordings did not survive the version jump, but were not
+   silently lost either.** Pointed the new Chainguard `minio` (as root) at
+   our existing data volume: the raw object files on disk were provably
+   untouched (same directory count, same file timestamps, confirmed by
+   inspecting the volume directly, not through MinIO), but the S3 API could
+   not see the bucket at all (`mc ls` empty, `mc stat` "Object does not
+   exist") - most likely because the data was written by a MinIO release
+   from around April 2025 and this build is over a year newer. No MinIO
+   binary anywhere (Docker Hub, quay.io, or a local image cache) could
+   still read that old on-disk format, so before applying the swap we
+   extracted what audio was cheaply recoverable straight from the volume's
+   files: MinIO's `xl-single` format stores small/whole objects as
+   `[32-byte bitrot hash][raw object bytes]` (confirmed byte-for-byte - the
+   raw bytes immediately after the 32-byte prefix are valid WebM/EBML,
+   `1a 45 df a3`), so stripping that prefix per object (per 1 MiB block, for
+   objects spanning more than one) recovers the original file without
+   needing a working MinIO server at all. All 4 pre-existing recordings
+   were recovered this way and validated by fully decoding each with
+   `ffmpeg` (clean exit, real Opus audio, plausible durations from ~4 to
+   ~21 minutes) - saved outside the repo (`_minio_extraction/`, gitignored)
+   rather than committed. `minio-init` then created a fresh, empty `vexa`
+   bucket on first boot against the new image, confirmed directly (`mc ls`
+   before/after) rather than assumed - old recordings are not visible
+   through the app going forward, only through the extracted files.
+6. **Verified working end-to-end on real, fresh data**, not just "containers
+   start": dispatched a real Vexa bot to a throwaway Jitsi room, let the new
+   5-minute `BOT_ALONE_SILENCE_WINDOW_MS` (see below) fire and complete the
+   meeting, then fetched its recording through the app's actual
+   `GET /meetings/{id}/audio` endpoint (which itself calls Vexa's
+   `/recordings/{id}/master` - the real production code path, not a
+   filesystem shortcut) - got back a 200, `audio/webm`, 70536 bytes,
+   starting with the correct EBML magic bytes and decoding cleanly under
+   `ffmpeg` with a real Opus stream. The test call had no real speech (no
+   microphone device is available in the automated test browser used for
+   this), so transcription correctly produced zero segments - a limitation
+   of that test's audio input, not of the storage swap - but the
+   write-to-MinIO-during-recording and read-back-through-Vexa's-own-API
+   paths are both proven on this image.
 
-**Why this patch is still here despite not fixing the live problem:** it's
-the correct, upstream-verified fix for the *first* break (Docker Hub
-withdrawal), it's committed once quay.io access is restored or a further
-upstream fix lands, and re-deriving it later would just mean repeating the
-same cherry-pick. Re-check this section (and quay.io access, and Vexa's
-[#1671](https://github.com/Vexa-ai/vexa/issues/1671)/[#1685](https://github.com/Vexa-ai/vexa/pull/1685) status) before relying on
-`docker compose up` bringing the main stack up cleanly.
+**Re-check before relying on this**: if the `vexa` submodule pin is ever
+bumped, confirm these `MINIO_IMAGE`/`MINIO_MC_IMAGE` defaults and the
+`user: "0:0"` overrides survive the bump - a naive update could silently
+drop them and reintroduce the pull failure, or conflict with an
+already-merged upstream fix. If quay.io or Docker Hub ever restore
+anonymous MinIO access, or Vexa's own [#1671](https://github.com/Vexa-ai/vexa/issues/1671)
+lands a durable fix, it's worth re-evaluating whether Chainguard + the
+root override is still the best option or just the one that was necessary
+in September 2026.
 
-**`git status` inside `vexa/` will now correctly show local modifications**
-relative to the pinned commit (the cherry-picked commit, detached from
+**`git status` inside `vexa/` will correctly show local modifications**
+relative to the pinned commit (detached from
 `59e2c413a53479125b70b712ade12ab470d55512`). That's expected and
-intentional - not something to "clean up" - until the pinned submodule
-commit is updated to one that includes the real merged upstream fix. When
-that update happens, re-check whether this patch is still needed (a naive
-submodule bump could otherwise silently drop it and reintroduce the
-breakage, or conflict with an already-merged version of the same fix).
+intentional.
 
 Then mint a self-host API key (the `provision-token` script needs Python;
 this host's `python3` resolves to the Windows Store alias stub, so we ran it
