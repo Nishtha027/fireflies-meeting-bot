@@ -17,6 +17,7 @@ authenticated=true/false rather than 401ing itself.
 """
 
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -57,8 +58,16 @@ class EmailAlreadyRegisteredError(AuthError):
     """POST /auth/register was called with an email that's already taken."""
 
 
+class InvalidInviteCodeError(AuthError):
+    """POST /auth/register was called with a missing or incorrect invite code."""
+
+
 class AuthConfigError(AuthError):
     """JWT_SECRET_KEY is not set."""
+
+
+class InviteCodeConfigError(AuthError):
+    """INVITE_CODE is not set."""
 
 
 def _get_secret_key() -> str:
@@ -68,15 +77,32 @@ def _get_secret_key() -> str:
         raise AuthConfigError("JWT_SECRET_KEY is not set - check backend/.env.") from exc
 
 
-def register_user(db: Session, name: str, email: str, password: str) -> User:
-    """Raises EmailAlreadyRegisteredError if the email is already taken.
+def _get_invite_code() -> str:
+    try:
+        return os.environ["INVITE_CODE"]
+    except KeyError as exc:
+        raise InviteCodeConfigError("INVITE_CODE is not set - check backend/.env.") from exc
 
-    The up-front lookup gives a clean, fast 409 in the common case; the
-    try/except around commit() is the real guarantee against a race (two
-    registrations for the same email landing at once) - the email column's
-    own UNIQUE constraint rejects the loser, which we turn into the same
-    EmailAlreadyRegisteredError.
+
+def register_user(db: Session, name: str, email: str, password: str, invite_code: str) -> User:
+    """Raises InvalidInviteCodeError if invite_code doesn't match the
+    configured INVITE_CODE, or EmailAlreadyRegisteredError if the email is
+    already taken.
+
+    The invite code is checked first, with a constant-time comparison
+    (secrets.compare_digest, not ==) so a wrong guess can't be narrowed
+    down by response timing - and before the email lookup, so registration
+    with an invalid code reveals nothing about which emails already exist.
+
+    The up-front email lookup gives a clean, fast 409 in the common case;
+    the try/except around commit() is the real guarantee against a race
+    (two registrations for the same email landing at once) - the email
+    column's own UNIQUE constraint rejects the loser, which we turn into
+    the same EmailAlreadyRegisteredError.
     """
+    if not secrets.compare_digest(invite_code, _get_invite_code()):
+        raise InvalidInviteCodeError("Invalid invite code.")
+
     existing = db.query(User).filter_by(email=email).one_or_none()
     if existing is not None:
         raise EmailAlreadyRegisteredError("An account with this email already exists.")

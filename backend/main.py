@@ -48,6 +48,8 @@ from auth import (
     AuthConfigError,
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
+    InvalidInviteCodeError,
+    InviteCodeConfigError,
     change_password,
     create_access_token,
     get_current_user,
@@ -253,9 +255,13 @@ def _set_session_cookie(response: Response, user_id: int) -> None:
 @app.post("/auth/register", response_model=AuthResponse)
 def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
     try:
-        user = register_user(db, payload.name, payload.email, payload.password)
+        user = register_user(db, payload.name, payload.email, payload.password, payload.invite_code)
+    except InvalidInviteCodeError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except EmailAlreadyRegisteredError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except InviteCodeConfigError as exc:
+        raise HTTPException(status_code=500, detail=f"Registration is misconfigured: {exc}")
 
     _set_session_cookie(response, user.id)
     return AuthResponse(success=True)

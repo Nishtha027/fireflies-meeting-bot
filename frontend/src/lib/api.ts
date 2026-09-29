@@ -289,11 +289,12 @@ export function register(
   name: string,
   email: string,
   password: string,
+  inviteCode: string,
 ): Promise<AuthResponse> {
   return request<AuthResponse>("/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, email, password }),
+    body: JSON.stringify({ name, email, password, invite_code: inviteCode }),
   });
 }
 
