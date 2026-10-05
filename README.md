@@ -6,6 +6,8 @@ and generates summaries/action items using free APIs - all coordinated from
 a single machine.
 
 See [docs/PHASES.md](docs/PHASES.md) for the phase-by-phase plan and status.
+For how the production deployment works (Vercel frontend + Tailscale Funnel
+backend) and how to operate it, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 **Before writing any test that needs real audio or a disposable account,
 read [docs/TESTING_GUIDELINES.md](docs/TESTING_GUIDELINES.md)** - it documents

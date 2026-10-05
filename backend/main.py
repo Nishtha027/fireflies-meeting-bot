@@ -4,8 +4,9 @@ FastAPI application exposing our meeting data over HTTP.
 Run locally (dev, auto-reload on file changes, single process):
     uvicorn main:app --reload --port 8000
 
-Run in production (no reload, multiple worker processes):
-    uvicorn main:app --workers 4 --port 8000
+Run in production (no reload, ONE worker - the embedded Chroma store used by
+/chat is single-process only, see scripts/run-backend-prod.ps1):
+    uvicorn main:app --port 8000
 
 Then open http://localhost:8000/docs for interactive API docs.
 
@@ -100,6 +101,7 @@ from manual_meeting import (
 )
 from meeting_audio import MeetingAudioError, NoRecordingError, get_audio_stream
 from poller import start_scheduler, stop_scheduler
+from rate_limit import FailureLimiter
 from schemas import (
     AccountUpdateRequest,
     AccountUpdateResponse,
@@ -270,11 +272,57 @@ def _clear_session_cookie(response: Response) -> None:
     )
 
 
+# Brute-force protection for the two public, unauthenticated endpoints that
+# accept a secret (see rate_limit.py for scope and caveats). Only FAILED
+# attempts count. The global register limiter is the backstop against an
+# attacker who varies their apparent IP: the shared invite code is short, so
+# total wrong guesses across everyone must stay bounded too.
+_AUTH_WINDOW_SECONDS = 15 * 60
+_login_failures_by_ip = FailureLimiter(max_failures=20, window_seconds=_AUTH_WINDOW_SECONDS)
+_login_failures_by_email = FailureLimiter(max_failures=8, window_seconds=_AUTH_WINDOW_SECONDS)
+_register_failures_by_ip = FailureLimiter(max_failures=10, window_seconds=_AUTH_WINDOW_SECONDS)
+_register_failures_global = FailureLimiter(max_failures=40, window_seconds=_AUTH_WINDOW_SECONDS)
+_GLOBAL_KEY = "all"
+
+
+def _client_ip(request: Request) -> str:
+    # Behind Vercel's proxy and Tailscale Funnel the TCP peer is always the
+    # proxy, so the real client is the first X-Forwarded-For hop (Vercel
+    # overwrites that header rather than trusting the client's).
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _reject_if_rate_limited(*checks: tuple[FailureLimiter, str]) -> None:
+    wait = max(limiter.retry_after(key) for limiter, key in checks)
+    if wait:
+        minutes = -(-wait // 60)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed attempts. Try again in {minutes} minute{'s' if minutes != 1 else ''}.",
+            headers={"Retry-After": str(wait)},
+        )
+
+
 @app.post("/auth/register", response_model=AuthResponse)
-def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
+def register(
+    payload: RegisterRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    ip = _client_ip(request)
+    _reject_if_rate_limited(
+        (_register_failures_by_ip, ip),
+        (_register_failures_global, _GLOBAL_KEY),
+    )
     try:
         user = register_user(db, payload.name, payload.email, payload.password, payload.invite_code)
     except InvalidInviteCodeError as exc:
+        _register_failures_by_ip.record_failure(ip)
+        _register_failures_global.record_failure(_GLOBAL_KEY)
         raise HTTPException(status_code=403, detail=str(exc))
     except EmailAlreadyRegisteredError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -286,14 +334,28 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
 
 
 @app.post("/auth/login", response_model=AuthResponse)
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
+def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    ip = _client_ip(request)
+    email_key = payload.email.strip().lower()
+    _reject_if_rate_limited(
+        (_login_failures_by_ip, ip),
+        (_login_failures_by_email, email_key),
+    )
     try:
         user = verify_credentials(db, payload.email, payload.password)
     except InvalidCredentialsError as exc:
+        _login_failures_by_ip.record_failure(ip)
+        _login_failures_by_email.record_failure(email_key)
         raise HTTPException(status_code=401, detail=str(exc))
     except AuthConfigError as exc:
         raise HTTPException(status_code=500, detail=f"Login is misconfigured: {exc}")
 
+    _login_failures_by_email.reset(email_key)
     _set_session_cookie(response, user.id)
     return AuthResponse(success=True)
 

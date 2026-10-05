@@ -12,7 +12,7 @@ new infrastructure needed, just calling it directly.
 
 Unlike live Capture Meeting (bot join, polled over minutes) and manual
 (pasted transcript, instant), this has a real one-shot processing step -
-optionally extracting audio from video via ffmpeg, then a possibly-slow
+normalizing the audio to 16kHz mono WAV via ffmpeg, then a possibly-slow
 HTTP call to the transcription service - so POST /meetings/upload
 (main.py) creates the Meeting row and returns immediately
 (status="processing"), and process_uploaded_file() below runs afterward as
@@ -227,11 +227,12 @@ def _ffmpeg_executable() -> str:
 
 
 def _extract_audio(video_path: str) -> str:
-    """Extracts the audio track from a video file into a temp 16kHz mono
-    .wav - what faster-whisper wants anyway, and far smaller than shipping
-    the original video onward. Raises UploadConfigError if ffmpeg itself
-    isn't available, or UploadMeetingError with ffmpeg's own stderr for a
-    corrupt/unreadable file."""
+    """Converts any accepted upload (video: its audio track; audio: the
+    audio itself) into a temp 16kHz mono .wav - the one format the
+    transcription service decodes reliably (see process_uploaded_file) and
+    far smaller than shipping a video onward. Raises UploadConfigError if
+    ffmpeg itself isn't available, or UploadMeetingError with ffmpeg's own
+    stderr for a corrupt/unreadable file."""
     fd, audio_path = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
     try:
@@ -333,19 +334,24 @@ def _mark_failed(meeting_id: int, error_message: str) -> None:
 
 
 def process_uploaded_file(meeting_id: int, tmp_path: str, ext: str) -> None:
-    """The background work for one uploaded file: extraction (video only),
+    """The background work for one uploaded file: audio normalization,
     transcription, saving segments with REAL timestamps (this is genuine
     audio duration/timing data, unlike pasted/manual meetings' synthetic
     per-line stamps), summarizing. Always cleans up every temp file it
     touched. Never raises - failure is recorded on the meeting row itself
     (status="failed" + processing_error) since this runs detached from any
     request/response cycle that could otherwise surface an exception."""
-    audio_path = tmp_path
     extracted_path: str | None = None
     try:
-        if ext in VIDEO_EXTENSIONS:
-            extracted_path = _extract_audio(tmp_path)
-            audio_path = extracted_path
+        # EVERY file is normalized to 16kHz mono WAV first, not just video.
+        # Verified against the transcription service directly: it decodes a
+        # 16kHz-mono WAV and an .m4a correctly, but returns an empty
+        # transcript for an .mp3 and for a WAV at any other sample rate /
+        # channel layout (44.1kHz mono came back as "You", 48kHz stereo as
+        # nothing) - i.e. most real-world recordings. ffmpeg handles every
+        # format we accept, so one normalization step removes the whole class.
+        extracted_path = _extract_audio(tmp_path)
+        audio_path = extracted_path
 
         result = _transcribe(audio_path)
         if not result.segments and not result.text:
