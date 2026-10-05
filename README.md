@@ -47,14 +47,14 @@ flowchart TD
     V -->|"/api/* reverse proxy"| F[Tailscale Funnel]
 
     subgraph H["Your machine"]
-        F --> A["FastAPI backend"]
-        A --> P[("Postgres")]
+        A["FastAPI backend"] --> P[("Postgres")]
         A --> C[("Chroma vector index")]
         A --> X["Vexa meeting-bot stack"]
         A --> T["faster-whisper transcription"]
         X --> T
     end
 
+    F -->|"public HTTPS to localhost:8000"| A
     X -->|bot joins call| M([Google Meet])
     A -->|summaries and chat| G([Groq API])
 ```
