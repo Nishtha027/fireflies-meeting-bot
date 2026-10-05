@@ -1,36 +1,34 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Meetscribe frontend
 
-## Getting Started
+The Next.js 16 (App Router) dashboard for [Meetscribe](../README.md). React 19, TypeScript, Tailwind CSS 4.
 
-First, run the development server:
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+It talks to the FastAPI backend at `http://localhost:8000` by default, so no configuration is needed for local development (start the backend first - see the [root README](../README.md#getting-started-local-development)).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Other scripts: `npm run build`, `npm run start`, `npm run lint`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Environment
 
-## Learn More
+| Variable | Default | Purpose |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | API base URL baked into the client bundle at build time. Set to `/api` in production. |
+| `API_PROXY_TARGET` | unset | Production only. When set, `next.config.ts` rewrites `/api/*` to this backend URL, which makes the session cookie first-party. Build-time. |
 
-To learn more about Next.js, take a look at the following resources:
+Both are inlined at build time, so changing either needs a rebuild/redeploy. Why the proxy exists, and how to deploy, is in [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Layout
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+src/app/            Routes: / (Home), /meetings, /meetings/[id], /tasks, /chat,
+                    /search, /analytics, /settings, /login, /register
+src/components/     UI building blocks (transcript view, audio player, modals, charts...)
+src/lib/            API client (api.ts), formatting helpers
+```
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Pages other than `/login` and `/register` require a session; unauthenticated visits are redirected to `/login`.
