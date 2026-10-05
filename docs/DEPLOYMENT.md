@@ -219,11 +219,35 @@ Rename-Item "$env:LOCALAPPDATA\Docker\run" "run.stale"
 Rename-Item "$env:LOCALAPPDATA\docker-secrets-engine" "docker-secrets-engine.stale"
 ```
 
+**Symptom: audio won't play (or shows "No audio available"), uploads stall,
+or random requests take ~21 s - but every service reports healthy.**
+The backend is reaching its dependencies through `localhost`. On this
+Windows/WSL2 host `localhost` resolves to the IPv6 address `::1` first, where
+Docker's published ports can silently drop connections, so each *new*
+connection waits ~21 s (Windows' TCP connect timeout) before falling back to
+IPv4. Connection pooling hides it for Postgres until a connection is
+re-opened; Vexa and transcription calls are not pooled, and the audio
+endpoint makes three Vexa calls per request, so one play request took ~64 s
+and the player gave up. The fix is to use `127.0.0.1` everywhere
+(`VEXA_API_BASE`, `TRANSCRIPTION_SERVICE_URL`, and the Postgres host in
+`app/database.py`), then restart the backend. To check for it:
+
+```powershell
+curl.exe -s -o NUL -w "%{time_total}s`n" http://127.0.0.1:18056/health   # ~0.3 s
+curl.exe -s -o NUL -w "%{time_total}s`n" http://[::1]:18056/health       # ~21 s = the problem
+```
+
+Note that a recording can be perfectly healthy and still sound silent: the
+bot's audio starts when it joins, and a call where nobody speaks for the
+first minute records digital silence for that minute. Click a transcript
+line (or drag the seek bar) to jump to where people actually talk.
+
 ## Verification checklist
 
 - `curl https://<funnel-host>/health` → `{"status":"ok","database":"connected"}`
 - `curl https://<frontend>/api/health` returns the same (proves the proxy)
 - Register (invite code) / login / logout in a browser, also with
   third-party cookies blocked
-- Open a meeting with audio, play and seek (`206 Partial Content` on `Range`)
+- Open a meeting with audio, play and seek (`206 Partial Content` on `Range`);
+  each audio request should answer in about a second, not tens of seconds
 - Upload an audio file; ask `/chat` a question about a meeting

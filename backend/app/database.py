@@ -12,7 +12,12 @@ def _database_url() -> str:
     password = os.environ["POSTGRES_PASSWORD"]
     db = os.environ["POSTGRES_DB"]
     port = os.environ.get("POSTGRES_HOST_PORT", "5433")
-    return f"postgresql+psycopg2://{user}:{password}@localhost:{port}/{db}"
+    # 127.0.0.1, not "localhost": docker-compose publishes this port on IPv4
+    # loopback only, but on Windows/WSL2 "localhost" resolves to ::1 first
+    # and that attempt can hang for ~21 s (Windows' TCP connect timeout)
+    # before falling back to IPv4 - measured: 21 s per NEW connection vs
+    # 0.04 s. Pooling hides it until a connection has to be re-opened.
+    return f"postgresql+psycopg2://{user}:{password}@127.0.0.1:{port}/{db}"
 
 
 # Postgres runs in a Docker container on a Windows/WSL2 host that can
