@@ -1,8 +1,11 @@
 """
 FastAPI application exposing our meeting data over HTTP.
 
-Run locally:
+Run locally (dev, auto-reload on file changes, single process):
     uvicorn main:app --reload --port 8000
+
+Run in production (no reload, multiple worker processes):
+    uvicorn main:app --workers 4 --port 8000
 
 Then open http://localhost:8000/docs for interactive API docs.
 
@@ -188,9 +191,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Fireflies Clone API", version="0.1.0", lifespan=lifespan)
 
-# Next.js's default dev server port is 3000. No frontend exists yet, so this
-# is intentionally overridable via an env var without touching code once one
-# does (e.g. a different port, or a deployed frontend origin).
+# Defaults to the frontend's local dev/prod port (Next.js on 3000 either
+# way). Already overridable via CORS_ORIGINS (comma-separated) without a
+# code change - when this is deployed to a real domain (Phase 2), set
+# CORS_ORIGINS to that domain's origin(s) rather than hardcoding it here.
 _default_origins = "http://localhost:3000"
 ALLOWED_ORIGINS = [
     origin.strip()
@@ -252,6 +256,20 @@ def _set_session_cookie(response: Response, user_id: int) -> None:
     )
 
 
+def _clear_session_cookie(response: Response) -> None:
+    # Must repeat the exact SameSite/Secure attributes the cookie was set
+    # with: when the frontend is a different site (SameSite=None), browsers
+    # ignore a deletion that arrives as SameSite=Lax (Starlette's default),
+    # so the session would silently survive logout.
+    response.delete_cookie(
+        key=COOKIE_NAME,
+        path="/",
+        secure=COOKIE_SECURE,
+        httponly=True,
+        samesite=COOKIE_SAMESITE,
+    )
+
+
 @app.post("/auth/register", response_model=AuthResponse)
 def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
     try:
@@ -282,7 +300,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
 
 @app.post("/auth/logout", response_model=AuthResponse)
 def logout(response: Response):
-    response.delete_cookie(key=COOKIE_NAME, path="/")
+    _clear_session_cookie(response)
     return AuthResponse(success=True)
 
 
@@ -1288,7 +1306,7 @@ def delete_account(
     db.delete(current_user)
     db.commit()
 
-    response.delete_cookie(key=COOKIE_NAME, path="/")
+    _clear_session_cookie(response)
     return DeleteAccountResponse(success=True)
 
 

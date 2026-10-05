@@ -26,9 +26,35 @@ some redundant work.)
 Deliberately reuses capture_meeting.get_capture_status() as-is - the same
 function already proven correct when called manually - rather than
 re-implementing its ingest+summarize-on-completion logic here.
+
+In production this app runs as multiple uvicorn worker processes
+(--workers N), each an independent OS process that re-imports this module
+and re-runs the FastAPI lifespan - so without a guard, N workers would
+mean N copies of this scheduler all polling Vexa and the DB on the same
+interval. start_scheduler() guards against that with a singleton lock
+(see _try_acquire_singleton_lock): an OS-level exclusive lock on a fixed
+file, so only the first worker to grab it actually starts the scheduler -
+the rest see it already held and skip it. (An earlier version of this
+lock used a fixed localhost TCP port as the mutex instead of a file; that
+was dropped after live testing on this machine found the chosen port
+reliably failed to bind - even with nothing else in Task Manager using it
+- almost certainly a Hyper-V/WSL2 NAT port reservation, which made every
+worker lose the race. A file lock has no such port-collision risk.) The OS
+releases the lock automatically if the owning process dies or is killed,
+so a crashed/restarted worker can't leave the poller permanently stuck
+off.
 """
 
 import logging
+import sys
+import tempfile
+from pathlib import Path
+from typing import IO
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -37,6 +63,12 @@ from app.models import Meeting
 from capture_meeting import CaptureError, get_capture_status
 
 logger = logging.getLogger("meetscribe.poller")
+
+# A fixed path in the OS temp dir, used purely as a cross-process mutex -
+# its content is irrelevant, only whether a process holds an exclusive
+# lock on it. See _try_acquire_singleton_lock.
+_LOCK_PATH = Path(tempfile.gettempdir()) / "meetscribe-poller.lock"
+_lock_file: IO[str] | None = None
 
 # 25s (tightened from 45s): still frequent enough that ending a call
 # resolves fast with zero user action, without hammering Vexa's API - each
@@ -116,7 +148,38 @@ def poll_in_progress_meetings() -> None:
             )
 
 
+def _try_acquire_singleton_lock() -> bool:
+    """Takes an OS-level exclusive, non-blocking lock on a fixed file.
+    Returns True if this process won it (and should run the scheduler),
+    False if another worker process already holds it. The open file handle
+    is kept in _lock_file for the life of the process - closing it would
+    release the lock and let another worker "steal" it while this one is
+    still running the scheduler."""
+    global _lock_file
+    f = open(_LOCK_PATH, "a+")
+    try:
+        f.seek(0)
+        if sys.platform == "win32":
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return False
+    _lock_file = f
+    return True
+
+
 def start_scheduler() -> None:
+    if not _try_acquire_singleton_lock():
+        logger.info(
+            "Background poller not started in this worker process - another "
+            "worker process already owns it (singleton lock on %s held "
+            "elsewhere). This is expected under multiple uvicorn workers.",
+            _LOCK_PATH,
+        )
+        return
+
     scheduler.add_job(
         poll_in_progress_meetings,
         trigger="interval",
@@ -134,4 +197,18 @@ def start_scheduler() -> None:
 
 
 def stop_scheduler() -> None:
+    global _lock_file
+    if _lock_file is None:
+        # This worker never won the singleton lock, so it never started
+        # the scheduler - nothing to shut down.
+        return
     scheduler.shutdown(wait=False)
+    try:
+        _lock_file.seek(0)
+        if sys.platform == "win32":
+            msvcrt.locking(_lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(_lock_file.fileno(), fcntl.LOCK_UN)
+    finally:
+        _lock_file.close()
+        _lock_file = None

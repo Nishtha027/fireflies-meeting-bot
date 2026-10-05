@@ -8,4 +8,5 @@ archive/phase1-manual-approach/auth_state.json
 backend/chroma_data/
 backend/hf_cache/
 backend/*.log
+frontend/*.log
 _minio_extraction/

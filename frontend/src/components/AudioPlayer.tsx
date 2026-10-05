@@ -6,9 +6,10 @@ import { Pause, Play } from "lucide-react";
 // Same API_URL fallback as lib/api.ts - the <audio> element loads this URL
 // directly (not through request()'s JSON-only fetch wrapper), so the
 // backend proxy - not Vexa, and not our API key - is what the browser talks
-// to. Cookies ride along automatically: this is a same-site (if
-// cross-port) plain resource load, not a fetch() that needs an explicit
-// credentials option.
+// to. Cookies ride along automatically on a plain resource load (there is
+// no fetch() credentials option for <audio src>), but when the frontend
+// and backend are different sites (Vercel + Tailscale Funnel) that only
+// works because the backend sets the session cookie SameSite=None; Secure.
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 function formatTime(seconds: number): string {
