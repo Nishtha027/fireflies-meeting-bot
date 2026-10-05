@@ -51,6 +51,23 @@ Funnel URL and leave `API_PROXY_TARGET` unset): the backend sends
 credentials. This works in Chrome/Edge/Firefox but **not** in
 third-party-cookie-blocking browsers, which is why the proxy is the default.
 
+## Sharing the app
+
+Give people **one link**; it signs them up and drops them into their own
+private account (accounts are isolated - nobody sees anyone else's meetings):
+
+```
+https://frontend-zeta-brown-62.vercel.app/register#invite=<INVITE_CODE>
+```
+
+The code after `#invite=` pre-fills the invite field. It sits in the URL
+*fragment*, which browsers never send to any server (Vercel, the backend,
+Referer headers), and the page removes it from the address bar after reading.
+Anyone holding the link can register, so treat it like the code itself: to
+revoke access, change `INVITE_CODE` in `backend/.env` and restart the backend
+(existing accounts keep working). Without the code a plain `/register` link
+still can't create an account - the server enforces it (HTTP 403).
+
 ## Backend production settings
 
 `scripts/prod-env.ps1` holds the production-only environment, applied as

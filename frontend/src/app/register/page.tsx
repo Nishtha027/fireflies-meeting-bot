@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ApiError, NetworkError, register } from "@/lib/api";
@@ -16,6 +16,19 @@ export default function RegisterPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Shareable invite link: /register#invite=<code> pre-fills the code, so one
+  // link is all a new user needs. It lives in the URL fragment on purpose -
+  // browsers never send the fragment to any server (not Vercel, not the
+  // backend, not in a Referer header) - and it is removed from the address bar
+  // once read so it isn't re-shared by accident from the browser's URL bar.
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("invite");
+    if (!code) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time read of browser-only state (the URL fragment) after mount
+    setInviteCode(code);
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
