@@ -42,16 +42,16 @@
 ## How it works
 
 ```mermaid
-flowchart LR
-    U([Browser]) -->|HTTPS| V["Vercel<br/>Next.js frontend"]
+flowchart TD
+    U([Browser]) -->|HTTPS| V["Vercel: Next.js frontend"]
     V -->|"/api/* reverse proxy"| F[Tailscale Funnel]
 
     subgraph H["Your machine"]
         F --> A["FastAPI backend"]
-        A --> P[("Postgres<br/>meetings, transcripts,<br/>summaries, tasks")]
-        A --> C[("Chroma<br/>vector index")]
-        A --> X["Vexa<br/>meeting-bot stack"]
-        A --> T["faster-whisper<br/>transcription"]
+        A --> P[("Postgres")]
+        A --> C[("Chroma vector index")]
+        A --> X["Vexa meeting-bot stack"]
+        A --> T["faster-whisper transcription"]
         X --> T
     end
 
