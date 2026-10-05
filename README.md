@@ -43,8 +43,10 @@
 
 ```mermaid
 flowchart TD
-    U([Browser]) -->|HTTPS| V["Vercel: Next.js frontend"]
-    V -->|"/api/* reverse proxy"| F[Tailscale Funnel]
+    subgraph I["Public internet"]
+        U([Browser]) -->|HTTPS| V["Vercel: Next.js frontend"]
+        V -->|"/api/* reverse proxy"| F[Tailscale Funnel]
+    end
 
     subgraph H["Your machine"]
         A["FastAPI backend"] --> P[("Postgres")]
